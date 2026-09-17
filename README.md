@@ -1,66 +1,77 @@
 # 🎮 MatrixPeerGame
 
 > **Serverless Multiplayer Game Networking Library**  
-> Twórz gry wieloosobowe w przeglądarce **bez kosztów i bez utrzymywania własnych dedykowanych serwerów gier!**  
-> Działa jako **płaskie JS (`<script src="...">`) bez Node.js** lub jako nowoczesna paczka TypeScript/ESM.
+> Build multiplayer browser games **without paying for or maintaining dedicated game servers!**  
+> Usable as **flat JavaScript (`<script src="...">`) with zero Node.js / build steps required**, or as a modern TypeScript/ESM package.
+
+**English** | [Polski](README.pl.md)
 
 ---
 
-## 🚀 Jak to działa?
+## 🚀 Why MatrixPeerGame?
 
-Tradycyjne gry multiplayer wymagają drogich serwerów backendowych (Node.js, C#, Go), bazy danych i stałej konserwacji. **MatrixPeerGame** całkowicie to eliminuje dzięki połączeniu dwóch bezpłatnych technologii:
+Traditional multiplayer games require expensive backend game servers (Node.js, C#, Go), databases, matchmakers, and continuous maintenance.
 
-1. **[Matrix Protocol](https://matrix.org)** (Zdecentralizowana warstwa lobby i sygnalizacji):
-   - Wyszukiwanie gier (`LobbyDiscovery`)
-   - Tworzenie i dołączanie do pokoi lobby
-   - Gotowość graczy (Ready check), nicki, avatary
-   - Czat w poczekalni
-   - Wymiana identyfikatorów WebRTC (sygnalizacja P2P)
-   - Działa z darmowymi kontami gości (`Guest Accounts`) na publicznych serwerach jak `matrix.org`
+**MatrixPeerGame** eliminates server maintenance by combining two free, decentralized, battle-tested technologies:
 
-2. **[PeerJS](https://peerjs.com)** (Warstwa bezpośredniej komunikacji w czasie rzeczywistym WebRTC):
-   - Bezpośrednie połączenia P2P przeglądarka-przeglądarka z opóźnieniami rzędu **10–30 ms**
-   - **Kanał Unreliable (UDP):** 60 FPS dla pozycji graczy, fizyki i pocisków
-   - **Kanał Reliable (TCP-like):** bezbłędne dostarczanie rozkazów, akcji i czatu
-   - Ciągły pomiar opóźnień (Ping/RTT)
+```
++-------------------------------------------------------------+
+|               Matrix Protocol (e.g. matrix.org)             |
+|  - Room Discovery & Matchmaking    - In-Lobby Chat          |
+|  - Player Ready Checks             - WebRTC Signaling / SDP |
+|  - Free Guest Authentication                                |
++-------------------------------------------------------------+
+                              |
+               (Direct WebRTC P2P Handshake)
+                              v
++-------------------------------------------------------------+
+|                      PeerJS (WebRTC)                        |
+|  - Direct Browser-to-Browser P2P DataChannels               |
+|  - Ultra-low latency (10-30 ms RTT)                         |
+|  - Unreliable UDP (60 FPS positions, physics, raycasts)     |
+|  - Reliable TCP-like (Orders, turns, chat, game events)     |
++-------------------------------------------------------------+
+```
 
 ---
 
-## 📦 Szybki Start: Użycie jako „Płaskie JS” (Zero Node.js!)
+## 📦 Quick Start: Flat Vanilla JS (Zero Node.js!)
 
-Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołączyć plik `dist/matrix-peer-game.js` w swoim pliku HTML:
+You do not need Node.js, npm, Webpack, or Vite to build multiplayer games. Simply include `dist/matrix-peer-game.js` in your HTML file:
 
 ```html
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Moja Gra Multiplayer</title>
+  <meta charset="UTF-8">
+  <title>My Multiplayer Game</title>
 </head>
 <body>
-  <!-- Dołączenie biblioteki ze wszystkimi zależnościami w jednym pliku -->
+  <!-- All-in-one standalone bundle with embedded PeerJS -->
   <script src="./dist/matrix-peer-game.js"></script>
 
   <script>
     async function init() {
-      // 1. Inicjalizacja klienta
+      // 1. Initialize client
       const net = new MatrixPeerGame.Client({
         homeserver: 'https://matrix.org',
-        gameId: 'moja-gra-arena'
+        gameId: 'my-arena-game'
       });
 
-      // 2. Logowanie gościa (bez hasła)
+      // 2. Log in as a guest (no email or password required)
       await net.loginAsGuest('Player1');
 
-      // 3. Utworzenie pokoju lobby
-      const room = await net.createLobby({ name: 'Arena Mistrzów', maxPlayers: 4 });
+      // 3. Create a game lobby (host)
+      const room = await net.createLobby({ name: 'Arena #1', maxPlayers: 4 });
 
-      room.on('playerJoined', (player) => console.log('Dołączył gracz:', player));
-      
-      // 4. Gdy gra startuje -> automatyczne połączenie WebRTC P2P
+      room.on('playerJoined', (player) => console.log('Player joined:', player));
+
+      // 4. Start game -> P2P WebRTC DataChannel connects automatically
       room.on('gameStarted', () => {
         const engine = net.createRealtimeEngine({ tickRate: 30 });
+        
         engine.on('entityUpdate', ({ entityId, state }) => {
-          console.log('Pozycja gracza:', entityId, state);
+          console.log('Player state:', entityId, state);
         });
       });
     }
@@ -73,42 +84,46 @@ Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołącz
 
 ---
 
-## 🕹️ Dedykowane Silniki pod Różne Typy Gier
+## 🕹️ Specialized Engines for Every Game Genre
 
-Biblioteka posiada 4 wbudowane silniki dopasowane do specyfiki różnych gatunków:
+MatrixPeerGame includes 4 pre-built, specialized engines tailored for different gameplay mechanics:
 
-### 1. `RealtimeEngine` (Gry Akcji, FPS i Zręcznościówki 2D/3D)
-Działa na szybkim kanale UDP (`reliable: false`) z wbudowanym buforem i interpolacją pozycji (`lerp`) eliminującą szarpanie ekranu.
+### 1. `RealtimeEngine` (Action, FPS, 2D/3D Shooters, Racers)
+Runs over WebRTC's fast unreliable UDP channel (`reliable: false`) with built-in snapshot interpolation (`lerp`) to eliminate stutter and jitter.
 
-**Wsparcie dla pakietów binarnych w grach FPS:**
-Zamiast ciężkiego JSON-a (75 bajtów), współrzędne gracza 3D `(x, y, z, rotY)` pakowane są do **zaledwie 18 bajtów**:
+**18-Byte Binary Packets for 3D & FPS Games:**  
+Instead of bulky JSON strings (75+ bytes), 3D player coordinates `(x, y, z, rotY)` are packed into **exactly 18 bytes**:
+
 ```javascript
 const engine = net.createRealtimeEngine({ tickRate: 60, interpolationDelayMs: 40 });
 
-// W pętli gry (60 FPS) wysyłamy 18-bajtowy pakiet binarny:
+// In your 60 FPS render loop, broadcast 18 bytes via UDP:
 engine.sendVector3(myPlayerId, player.x, player.y, player.z, player.rotationY);
 
-// Odbiór z automatyczną płynną interpolacją:
+// On receiving remote players with smooth linear interpolation:
 const smoothPos = engine.getInterpolatedPosition(enemyId);
 ```
 
 ---
 
-### 2. `LockstepEngine` (Gry RTS i Bijatyki)
-W strategiach czasu rzeczywistego (jak StarCraft) nie przesyła się pozycji 500 czołgów. Wykorzystuje się **Deterministic Lockstep**, gdzie gracze przesyłają wyłącznie rozkazy gracza (kilkadziesiąt bajtów), a symulacja wykonuje się synchronicznie w określonych krokach czasowych (tickach):
+### 2. `LockstepEngine` (RTS & Fighting Games)
+Real-time strategy games (like *StarCraft* or *Age of Empires*) never stream hundreds of individual unit coordinates across the network. Instead, they use **Deterministic Lockstep**:
+- Only user commands (mouse clicks, build orders) are sent over the network (a few dozen bytes).
+- All peers execute simulation ticks in lockstep with lag detection and automatic pauses.
+
 ```javascript
 const rts = net.createLockstepEngine({
-  tickDurationMs: 100, // 10 kroków symulacji na sekundę
-  commandDelayTicks: 2  // Wykonanie rozkazu za 2 kroki w przód
+  tickDurationMs: 100, // 10 simulation ticks per second
+  commandDelayTicks: 2  // Orders execute 2 ticks ahead
 });
 
-// Gracz klika na mapie:
+// Player clicks on the map:
 rts.queueCommand('MOVE_UNITS', { unitIds: [1, 2, 3], targetX: 120, targetY: 300 });
 
-// Zsynchronizowane wykonanie kroku symulacji u wszystkich graczy bez desynchronizacji:
+// Synchronized tick execution across all players without desync:
 rts.on('tickExecute', ({ tick, commands }) => {
   commands.forEach(cmd => executeOrder(cmd));
-  simulationStep();
+  advanceSimulationPhysics();
 });
 
 rts.start();
@@ -116,88 +131,81 @@ rts.start();
 
 ---
 
-### 3. `TurnBasedEngine` (Gry Turowe, Karciane i Planszowe)
-Zarządza kolejką graczy, sprawdza uprawnienia do ruchu, pilnuje limitu czasu tury (timeout) oraz rejestruje pełną historię akcji do cofania i powtórek:
+### 3. `TurnBasedEngine` (Chess, Checkers, Card & Board Games)
+Handles player turn sequences, enforces turn validity (prevents players from moving out of turn), manages turn time limits (countdown timers), and stores complete action history for undo/replays.
+
 ```javascript
 const turnGame = net.createTurnBasedEngine({
-  playersOrder: ['gracz1', 'gracz2'],
-  turnTimeoutMs: 30000 // 30 sekund na ruch
+  playersOrder: ['player1', 'player2'],
+  turnTimeoutMs: 30000 // 30 seconds per turn
 });
 
 turnGame.on('turnChange', ({ activePlayerId, turnNumber }) => {
-  console.log(`Tura #${turnNumber}: ruch gracza ${activePlayerId}`);
+  console.log(`Turn #${turnNumber}: active player is ${activePlayerId}`);
 });
 
-// Gracz wykonuje ruch:
+// Submit move during your turn:
 if (turnGame.isMyTurn) {
-  turnGame.submitAction('MOVE_CHESS_PIECE', { from: 'e2', to: 'e4' });
+  turnGame.submitAction('MOVE_PIECE', { from: 'e2', to: 'e4' });
   turnGame.passTurn();
 }
 ```
 
 ---
 
-### 4. `SharedStateEngine` (Kalambury, Tablice do Rysowania, Clickery)
-Reaktywny magazyn klucz-wartość synchronizowany P2P pomiędzy wszystkimi graczami:
+### 4. `SharedStateEngine` (Pictionary, Whiteboards, Clickers, Party Games)
+A reactive Key-Value store synchronized peer-to-peer across all players with conflict resolution and property subscriptions:
+
 ```javascript
 const store = net.createSharedState({
   canvasStrokes: [],
-  score: 0
+  currentScore: 0
 });
 
-// Subskrypcja zmian:
+// Subscribe to specific keys:
 store.subscribe('canvasStrokes', (strokes) => redrawCanvas(strokes));
 
-// Aktualizacja u dowolnego gracza natychmiast synchronizuje się u pozostałych:
+// Updating a value locally instantly syncs to all other connected peers:
 store.push('canvasStrokes', { x1: 10, y1: 20, x2: 30, y2: 40, color: '#ff0000' });
 ```
 
 ---
 
-## 🎮 Interaktywne Przykłady (Dema)
+## 🎮 Interactive Browser Demos
 
-W katalogu `examples/` znajdują się gotowe przykłady działające od razu w przeglądarce:
+The `examples/` directory contains runnable, zero-dependency HTML files:
 
-1. **`examples/01-vanilla-flat-html/index.html`**:
-   Kompletna gra arena 2D w czystym HTML+JS:
-   - Logowanie do Matrixa jako gość
-   - Tworzenie i dołączanie do pokoi lobby
-   - Czat w poczekalni i wskaźnik gotowości
-   - Płynne poruszanie się postacią w 60 FPS przez WebRTC z pomiarem pingu
-
-2. **`examples/02-realtime-fps-arena/index.html`**:
-   Wizualizacja i metryki oszczędności pasma dla pakietów binarnych 18-bajtowych w FPS.
-
-3. **`examples/03-rts-lockstep/index.html`**:
-   Deterministyczna symulacja jednostek w RTS z kolejkowaniem rozkazów kliknięć.
-
-4. **`examples/04-turn-based/index.html`**:
-   Gra turowa z zegarem odliczającym czas i blokadą ruchów nie w swojej turze.
+| Example | Path | Description |
+| :--- | :--- | :--- |
+| **01. Full Vanilla 2D Arena** | `examples/01-vanilla-flat-html/index.html` | Complete multiplayer lobby, Matrix guest login, ready checks, in-lobby chat, and real-time 60 FPS movement with live ping meter. |
+| **02. FPS Binary Vector3** | `examples/02-realtime-fps-arena/index.html` | High-frequency 18-byte binary Vector3 serialization benchmarks and raw buffer inspection. |
+| **03. RTS Deterministic Lockstep** | `examples/03-rts-lockstep/index.html` | Tactical unit squad movement using synchronized frame lockstep and order queueing. |
+| **04. Turn-Based Board Game** | `examples/04-turn-based/index.html` | Turn-based Tic-Tac-Toe / board game with turn timers and action history. |
 
 ---
 
-## 🛠️ Budowanie i Testy (Dla Deweloperów)
+## 🛠️ Development & Building
 
 ```bash
-# Instalacja zależności
+# Install dependencies
 npm install
 
-# Uruchomienie testów jednostkowych (Vitest)
+# Run Vitest unit tests (100% pass)
 npm run test
 
-# Zbudowanie plików standalone oraz modułów ESM/CJS (Tsup)
+# Build standalone IIFE and ESM/CJS bundles
 npm run build
 ```
 
-Pliki wyjściowe w `dist/`:
-- `dist/matrix-peer-game.js` – wersja standalone (IIFE z wbudowanym PeerJS do tagu `<script>`)
-- `dist/matrix-peer-game.min.js` – wersja zminifikowana
-- `dist/index.mjs` – moduł ES
-- `dist/index.js` – CommonJS
-- `dist/index.d.ts` – typowania TypeScript
+Generated files in `dist/`:
+- `dist/matrix-peer-game.js` – Standalone bundle (with embedded PeerJS for `<script>` tag)
+- `dist/matrix-peer-game.min.js` – Minified standalone bundle (~116 KB)
+- `dist/index.mjs` – ES Module
+- `dist/index.js` – CommonJS Module
+- `dist/index.d.ts` – Full TypeScript definitions
 
 ---
 
-## 📄 Licencja
+## 📄 License
 
 MIT License.
