@@ -1,0 +1,37 @@
+{
+  "name": "matrix-peer-game",
+  "version": "1.0.0",
+  "description": "Serverless multiplayer game networking library using Matrix for lobbies/signaling and PeerJS for WebRTC real-time gameplay",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "unpkg": "dist/matrix-peer-game.js",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "multiplayer",
+    "webrtc",
+    "peerjs",
+    "matrix",
+    "matrix-org",
+    "gamedev",
+    "serverless",
+    "p2p",
+    "fps",
+    "rts",
+    "lockstep"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "peerjs": "^1.5.4"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}

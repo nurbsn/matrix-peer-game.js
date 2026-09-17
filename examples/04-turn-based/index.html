@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Turn-Based Board Game Demo (TurnBasedEngine)</title>
+  <style>
+    body { background: #0f172a; color: #f8fafc; font-family: sans-serif; padding: 20px; text-align: center; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; max-width: 500px; margin: 0 auto; }
+    .board { display: grid; grid-template-columns: repeat(3, 100px); gap: 10px; justify-content: center; margin: 20px 0; }
+    .cell { width: 100px; height: 100px; background: #0b1120; border: 2px solid #38bdf8; border-radius: 8px; font-size: 2.5rem; font-weight: bold; color: #38bdf8; display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
+    .cell:hover { background: #1e293b; }
+    .status-bar { font-size: 1.1rem; margin-bottom: 10px; }
+    .timer { color: #f59e0b; font-weight: bold; }
+    .history { text-align: left; background: #020617; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.85rem; height: 100px; overflow-y: auto; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>♟️ Gra Turowa (Kółko i Krzyżyk / Szachy)</h2>
+    <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 15px;">Automatyczna walidacja tury, limit czasu i historia ruchów.</p>
+
+    <div class="status-bar">
+      Tura Gracza: <b id="turn-player" style="color: #38bdf8;">Gracz 1 (X)</b><br>
+      Czas na ruch: <span id="timer" class="timer">10s</span>
+    </div>
+
+    <div class="board" id="board">
+      <div class="cell" data-i="0"></div>
+      <div class="cell" data-i="1"></div>
+      <div class="cell" data-i="2"></div>
+      <div class="cell" data-i="3"></div>
+      <div class="cell" data-i="4"></div>
+      <div class="cell" data-i="5"></div>
+      <div class="cell" data-i="6"></div>
+      <div class="cell" data-i="7"></div>
+      <div class="cell" data-i="8"></div>
+    </div>
+
+    <button id="btn-pass" style="padding: 8px 16px; background: #334155; color: white; border: none; border-radius: 6px; cursor: pointer;">Pomiń Turę</button>
+
+    <div class="history" id="history"></div>
+  </div>
+
+  <script src="../../dist/matrix-peer-game.js"></script>
+  <script>
+    const { TurnBasedEngine, TypedEventEmitter } = MatrixPeerGame;
+
+    class DemoPeerManager extends TypedEventEmitter {
+      constructor() {
+        super();
+        this.peerId = 'Gracz_X';
+      }
+      broadcastJson() {}
+    }
+
+    const mockPeer = new DemoPeerManager();
+    const turnEngine = new TurnBasedEngine({
+      peerManager: mockPeer,
+      playersOrder: ['Gracz_X', 'Gracz_O'],
+      turnTimeoutMs: 10000 // 10 sekund na ruch
+    });
+
+    const grid = Array(9).fill(null);
+    const cells = document.querySelectorAll('.cell');
+    const historyBox = document.getElementById('history');
+
+    function log(msg) {
+      const d = document.createElement('div');
+      d.textContent = msg;
+      historyBox.appendChild(d);
+      historyBox.scrollTop = historyBox.scrollHeight;
+    }
+
+    // Obsługa kliknięcia w pole planszy
+    cells.forEach(cell => {
+      cell.addEventListener('click', () => {
+        const idx = parseInt(cell.dataset.i);
+        if (grid[idx]) return;
+
+        const currentSymbol = turnEngine.activePlayerId === 'Gracz_X' ? 'X' : 'O';
+        
+        try {
+          // Wykonanie ruchu przez silnik
+          const action = turnEngine.submitAction('PLACE_MARK', { cellIndex: idx, symbol: currentSymbol });
+          grid[idx] = currentSymbol;
+          cell.textContent = currentSymbol;
+          log(`[Ruch #${action.turnNumber}] ${action.playerId} postawił ${currentSymbol} na polu ${idx}`);
+
+          // Zakończenie tury
+          turnEngine.passTurn();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+
+    // Pomiń turę
+    document.getElementById('btn-pass').addEventListener('click', () => {
+      try {
+        turnEngine.passTurn();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    // Zmiana tury
+    turnEngine.on('turnChange', ({ activePlayerId, turnNumber }) => {
+      document.getElementById('turn-player').textContent = activePlayerId;
+      log(`--- Tura #${turnNumber}: Teraz ruch ${activePlayerId} ---`);
+      
+      // Zmiana aktywnego gracza w mocku
+      mockPeer.peerId = activePlayerId;
+    });
+
+    // Timeout
+    turnEngine.on('turnTimeout', ({ timedOutPlayerId }) => {
+      log(`⚠️ Czas minął dla gracza ${timedOutPlayerId}! Tura przeszła automatycznie.`);
+    });
+
+    turnEngine.start();
+  </script>
+</body>
+</html>

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Matrix + PeerJS: Serverless Multiplayer Demo (Płaskie JS)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.2);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+    .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
+    header { text-align: center; margin-bottom: 10px; }
+    header h1 { font-size: 1.8rem; color: var(--accent); margin-bottom: 5px; }
+    header p { color: var(--text-muted); font-size: 0.95rem; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+    .col { flex: 1; min-width: 200px; }
+    label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; }
+    input, select, button { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: #0b1120; color: var(--text); font-size: 0.95rem; outline: none; }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+    button { background: var(--accent); color: #0f172a; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
+    button:hover { filter: brightness(1.15); transform: translateY(-1px); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    button.secondary { background: var(--border); color: var(--text); }
+    button.success { background: var(--success); color: #fff; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .badge.green { background: rgba(34, 197, 94, 0.2); color: var(--success); border: 1px solid var(--success); }
+    .badge.amber { background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning); }
+    
+    /* Lobby Layout */
+    .lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 700px) { .lobby-grid { grid-template-columns: 1fr; } }
+    .players-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .player-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #0b1120; border: 1px solid var(--border); border-radius: 8px; }
+    .chat-box { height: 180px; overflow-y: auto; background: #0b1120; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 0.9rem; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .chat-msg { word-break: break-word; }
+    .chat-sender { color: var(--accent); font-weight: 600; }
+    
+    /* Game Arena */
+    #arena-card { display: none; }
+    canvas { background: #050811; border: 2px solid var(--border); border-radius: 10px; width: 100%; height: 380px; display: block; }
+    .stats-bar { display: flex; justify-content: space-between; padding: 10px; font-size: 0.85rem; color: var(--text-muted); background: #0b1120; border-radius: 8px; margin-top: 10px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>🎮 Matrix + PeerJS Multiplayer</h1>
+    <p>Gry multiplayer bez własnego serwera (Matrix dla lobby + PeerJS WebRTC P2P dla 60 FPS)</p>
+  </header>
+
+  <!-- STEP 1: LOGIN -->
+  <div id="auth-card" class="card">
+    <h3 style="margin-bottom: 15px;">1. Połącz z siecią Matrix</h3>
+    <div class="row">
+      <div class="col">
+        <label>Twój Pseudonim (Nick)</label>
+        <input type="text" id="nickname" value="Gracz_" placeholder="Wpisz nick">
+      </div>
+      <div class="col">
+        <label>Serwer Matrix (Homeserver)</label>
+        <input type="text" id="homeserver" value="https://matrix.org">
+      </div>
+    </div>
+    <button id="btn-login">Zaloguj jako Gość (Guest Account)</button>
+  </div>
+
+  <!-- STEP 2: LOBBY BROWSER -->
+  <div id="browser-card" class="card hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h3>2. Poczekalnia i Matchmaking</h3>
+      <span id="user-badge" class="badge green">Połączono</span>
+    </div>
+    
+    <div class="row">
+      <div class="col">
+        <label>Nazwa nowej gry</label>
+        <input type="text" id="room-name" value="Moja Super Arena">
+      </div>
+      <div class="col" style="display: flex; align-items: flex-end;">
+        <button id="btn-create-room">Utwórz Nowy Pokój (Host)</button>
+      </div>
+    </div>
+
+    <hr style="border-color: var(--border); margin: 15px 0;">
+
+    <div class="row">
+      <div class="col">
+        <label>Lub dołącz do istniejącego pokoju (ID pokoju Matrix)</label>
+        <input type="text" id="join-room-id" placeholder="!abc123xyz:matrix.org">
+      </div>
+      <div class="col" style="display: flex; align-items: flex-end;">
+        <button id="btn-join-room" class="secondary">Dołącz do Pokoju</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: LOBBY ROOM -->
+  <div id="room-card" class="card hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <h3 id="current-room-title">Pokój Gry</h3>
+      <button id="btn-leave-room" class="secondary" style="width: auto; padding: 6px 14px;">Wyjdź</button>
+    </div>
+
+    <div class="lobby-grid">
+      <div>
+        <h4>Gracze w pokoju</h4>
+        <ul id="players-list" class="players-list"></ul>
+        
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+          <button id="btn-ready" class="secondary">Oznacz jako: GOTOWY</button>
+          <button id="btn-start-game" class="success hidden">Rozpocznij Grę (Host)</button>
+        </div>
+      </div>
+
+      <div>
+        <h4>Czat w poczekalni</h4>
+        <div id="lobby-chat-box" class="chat-box"></div>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" id="chat-input" placeholder="Wpisz wiadomość...">
+          <button id="btn-send-chat" style="width: auto; padding: 8px 16px;">Wyślij</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4: REAL-TIME 60FPS GAME ARENA -->
+  <div id="arena-card" class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <h3>🎮 Arena 2D Czasu Rzeczywistego (WebRTC P2P)</h3>
+      <span id="p2p-status" class="badge green">P2P Połączone</span>
+    </div>
+    <canvas id="gameCanvas" width="800" height="380"></canvas>
+    <div class="stats-bar">
+      <span>Sterowanie: <b>Strzałki / WASD</b></span>
+      <span id="ping-display">Ping: -- ms</span>
+      <span id="players-count-display">Gracze: 1</span>
+      <span>Protokół: <b>WebRTC DataChannel (P2P)</b></span>
+    </div>
+  </div>
+</div>
+
+<!-- Dołączenie biblioteki jako płaskie JS bez Node.js! -->
+<script src="../../dist/matrix-peer-game.js"></script>
+
+<script>
+  // Inicjalizacja pseudonimu
+  const myRandomId = Math.floor(1000 + Math.random() * 9000);
+  document.getElementById('nickname').value = 'Gracz_' + myRandomId;
+
+  let client = null;
+  let currentRoom = null;
+  let realtimeEngine = null;
+  let isReady = false;
+
+  // Dane lokalnego gracza
+  const myColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+  const myPlayer = {
+    id: myRandomId,
+    x: 100 + Math.random() * 500,
+    y: 80 + Math.random() * 200,
+    color: myColor,
+    nickname: ''
+  };
+
+  // Zdalne encje
+  const remoteEntities = new Map();
+
+  // 1. Logowanie gościa do Matrix
+  document.getElementById('btn-login').addEventListener('click', async () => {
+    const nickname = document.getElementById('nickname').value.trim();
+    const homeserver = document.getElementById('homeserver').value.trim();
+    const btn = document.getElementById('btn-login');
+
+    btn.disabled = true;
+    btn.textContent = 'Łączenie z Matrixem...';
+
+    try {
+      client = new MatrixPeerGame.Client({
+        homeserver: homeserver,
+        gameId: 'super-arena-2d'
+      });
+
+      myPlayer.nickname = nickname;
+      await client.loginAsGuest(nickname);
+
+      document.getElementById('auth-card').classList.add('hidden');
+      document.getElementById('browser-card').classList.remove('hidden');
+      document.getElementById('user-badge').textContent = nickname + ' (' + client.currentUserId + ')';
+
+      setupClientNetworkEvents();
+    } catch (err) {
+      alert('Błąd połączenia z serwerem Matrix: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Zaloguj jako Gość (Guest Account)';
+    }
+  });
+
+  // 2. Tworzenie pokoju
+  document.getElementById('btn-create-room').addEventListener('click', async () => {
+    const name = document.getElementById('room-name').value.trim();
+    const btn = document.getElementById('btn-create-room');
+    btn.disabled = true;
+    btn.textContent = 'Tworzenie...';
+
+    try {
+      currentRoom = await client.createLobby({
+        name: name,
+        maxPlayers: 4
+      });
+      showRoomUI(currentRoom);
+    } catch (err) {
+      alert('Błąd tworzenia pokoju: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Utwórz Nowy Pokój (Host)';
+    }
+  });
+
+  // 3. Dołączanie do pokoju
+  document.getElementById('btn-join-room').addEventListener('click', async () => {
+    const roomId = document.getElementById('join-room-id').value.trim();
+    if (!roomId) return alert('Wpisz ID pokoju');
+    const btn = document.getElementById('btn-join-room');
+    btn.disabled = true;
+    btn.textContent = 'Dołączanie...';
+
+    try {
+      currentRoom = await client.joinLobby(roomId);
+      showRoomUI(currentRoom);
+    } catch (err) {
+      alert('Błąd dołączania: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Dołącz do Pokoju';
+    }
+  });
+
+  function showRoomUI(room) {
+    document.getElementById('browser-card').classList.add('hidden');
+    document.getElementById('room-card').classList.remove('hidden');
+    document.getElementById('current-room-title').textContent = 'Pokój: ' + room.roomId;
+
+    if (room.isHost) {
+      document.getElementById('btn-start-game').classList.remove('hidden');
+    }
+
+    setupRoomEvents(room);
+  }
+
+  function setupRoomEvents(room) {
+    // Gracze w pokoju
+    const renderPlayers = () => {
+      const list = document.getElementById('players-list');
+      list.innerHTML = '';
+      const players = room.players;
+      for (const p of players) {
+        const li = document.createElement('li');
+        li.className = 'player-item';
+        li.innerHTML = `
+          <span><b>${p.nickname}</b> ${p.isHost ? '👑 (Host)' : ''}</span>
+          <span class="badge ${p.isReady ? 'green' : 'amber'}">${p.isReady ? 'GOTOWY' : 'CZEKA'}</span>
+        `;
+        list.appendChild(li);
+      }
+      document.getElementById('players-count-display').textContent = `Gracze: ${players.length}`;
+    };
+
+    room.on('playerJoined', renderPlayers);
+    room.on('playerUpdated', renderPlayers);
+    room.on('playerLeft', renderPlayers);
+
+    // Czat w lobby
+    room.on('chatMessage', (msg) => {
+      const box = document.getElementById('lobby-chat-box');
+      const div = document.createElement('div');
+      div.className = 'chat-msg';
+      div.innerHTML = `<span class="chat-sender">${msg.senderNickname}:</span> ${msg.text}`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    });
+
+    // Start gry przez Hosta
+    room.on('gameStarted', () => {
+      startGameplay();
+    });
+
+    // Przełączanie gotowości
+    document.getElementById('btn-ready').addEventListener('click', async () => {
+      isReady = !isReady;
+      const btn = document.getElementById('btn-ready');
+      btn.textContent = isReady ? 'Jesteś: GOTOWY ✓' : 'Oznacz jako: GOTOWY';
+      btn.className = isReady ? 'success' : 'secondary';
+      await room.setReady(isReady, { color: myColor });
+    });
+
+    // Przycisk Start Gry
+    document.getElementById('btn-start-game').addEventListener('click', async () => {
+      await room.startGame();
+      startGameplay();
+    });
+
+    // Wysyłanie wiadomości na czacie
+    const sendChat = async () => {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      await room.sendChatMessage(text);
+    };
+    document.getElementById('btn-send-chat').addEventListener('click', sendChat);
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendChat();
+    });
+  }
+
+  function setupClientNetworkEvents() {
+    client.on('peerConnected', (peerId) => {
+      console.log('Nawiązano WebRTC DataChannel z peerem:', peerId);
+      document.getElementById('p2p-status').textContent = 'P2P Połączone (Direct WebRTC)';
+      document.getElementById('p2p-status').className = 'badge green';
+    });
+
+    client.on('pingUpdate', ({ ping }) => {
+      document.getElementById('ping-display').textContent = `Ping: ${ping} ms`;
+    });
+  }
+
+  // 4. Rozpoczęcie gry na Canvasie (60 FPS)
+  function startGameplay() {
+    document.getElementById('room-card').classList.add('hidden');
+    document.getElementById('arena-card').style.display = 'block';
+
+    // Inicjalizacja RealtimeEngine z biblioteki
+    realtimeEngine = client.createRealtimeEngine({
+      tickRate: 30, // 30Hz sieciowe odpytywanie pozycji
+      interpolationDelayMs: 45 // Płynna interpolacja pozycji
+    });
+
+    // Rejestracja pozycji
+    realtimeEngine.setLocalEntity(myPlayer.id, {
+      x: myPlayer.x,
+      y: myPlayer.y,
+      color: myPlayer.color,
+      nickname: myPlayer.nickname
+    });
+
+    // Odbiór pozycji innych graczy
+    realtimeEngine.on('entityUpdate', ({ entityId, state }) => {
+      remoteEntities.set(entityId, state);
+    });
+
+    // Obsługa sterowania
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const speed = 4;
+
+    function gameLoop() {
+      // Ruch lokalnego gracza
+      if (keys['ArrowUp'] || keys['w'] || keys['W']) myPlayer.y -= speed;
+      if (keys['ArrowDown'] || keys['s'] || keys['S']) myPlayer.y += speed;
+      if (keys['ArrowLeft'] || keys['a'] || keys['A']) myPlayer.x -= speed;
+      if (keys['ArrowRight'] || keys['d'] || keys['D']) myPlayer.x += speed;
+
+      // Ograniczenie do granic canvasa
+      myPlayer.x = Math.max(20, Math.min(canvas.width - 20, myPlayer.x));
+      myPlayer.y = Math.max(20, Math.min(canvas.height - 20, myPlayer.y));
+
+      // Aktualizacja silnika sieciowego
+      realtimeEngine.setLocalEntity(myPlayer.id, {
+        x: myPlayer.x,
+        y: myPlayer.y,
+        color: myPlayer.color,
+        nickname: myPlayer.nickname
+      });
+
+      // Rysowanie
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Siatka tła
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Rysowanie zdalnych graczy z interpolacją
+      for (const [id, state] of remoteEntities.entries()) {
+        const pos = realtimeEngine.getInterpolatedPosition(id) || state;
+        drawPlayer(ctx, pos.x, pos.y, state.color || '#38bdf8', state.nickname || 'Gracz ' + id);
+      }
+
+      // Rysowanie lokalnego gracza
+      drawPlayer(ctx, myPlayer.x, myPlayer.y, myPlayer.color, myPlayer.nickname + ' (TY)');
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function drawPlayer(ctx, x, y, color, name) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Nick
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(name, x, y - 22);
+    }
+
+    requestAnimationFrame(gameLoop);
+  }
+</script>
+
+</body>
+</html>
