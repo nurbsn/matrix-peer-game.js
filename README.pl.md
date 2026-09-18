@@ -176,6 +176,9 @@ W katalogu `examples/` znajdują się gotowe przykłady działające od razu w p
 4. **`examples/04-turn-based/index.html`**:
    Gra turowa z zegarem odliczającym czas i blokadą ruchów nie w swojej turze.
 
+5. **`examples/05-complete-game-matrix-chat/index.html`**:
+   Kompletna gra zbierania kryształów (Cyber Gems) w 60 FPS przez WebRTC ze **zintegrowanym czatem na żywo opartym o protokół Matrix** działającym bezpośrednio podczas rozgrywki!
+
 ---
 
 ## 🛠️ Budowanie i Testy (Dla Deweloperów)

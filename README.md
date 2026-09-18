@@ -181,6 +181,7 @@ The `examples/` directory contains runnable, zero-dependency HTML files:
 | **02. FPS Binary Vector3** | `examples/02-realtime-fps-arena/index.html` | High-frequency 18-byte binary Vector3 serialization benchmarks and raw buffer inspection. |
 | **03. RTS Deterministic Lockstep** | `examples/03-rts-lockstep/index.html` | Tactical unit squad movement using synchronized frame lockstep and order queueing. |
 | **04. Turn-Based Board Game** | `examples/04-turn-based/index.html` | Turn-based Tic-Tac-Toe / board game with turn timers and action history. |
+| **05. In-Game Matrix Chat (Cyber Gems)** | `examples/05-complete-game-matrix-chat/index.html` | Playable 2D gem collector with 60 FPS P2P WebRTC movement and live in-game Matrix chat sidebar! |
 
 ---
 
