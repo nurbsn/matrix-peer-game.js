@@ -646,6 +646,7 @@ var MatrixPeerGame = (() => {
   // src/index.ts
   var src_exports = {};
   __export(src_exports, {
+    Client: () => GameNetClient,
     GameNetClient: () => GameNetClient,
     LobbyDiscovery: () => LobbyDiscovery,
     LobbyRoom: () => LobbyRoom,

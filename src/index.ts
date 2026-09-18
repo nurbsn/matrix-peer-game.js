@@ -1,5 +1,6 @@
 // Core exports
 export { GameNetClient, GameNetClientOptions, GameNetClientEvents } from './core/GameNetClient';
+export { GameNetClient as Client } from './core/GameNetClient';
 export { TypedEventEmitter, EventHandler } from './core/events';
 
 // Matrix module exports

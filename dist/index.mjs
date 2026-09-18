@@ -1875,6 +1875,7 @@ if (typeof window !== "undefined") {
 }
 var index_default = MatrixPeerGame;
 export {
+  GameNetClient as Client,
   GameNetClient,
   LobbyDiscovery,
   LobbyRoom,

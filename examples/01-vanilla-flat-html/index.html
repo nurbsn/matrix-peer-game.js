@@ -189,7 +189,12 @@
     btn.textContent = 'Łączenie z Matrixem...';
 
     try {
-      client = new MatrixPeerGame.Client({
+      const ClientConstructor = (window.MatrixPeerGame && (window.MatrixPeerGame.Client || window.MatrixPeerGame.GameNetClient)) || (typeof MatrixPeerGame !== 'undefined' && (MatrixPeerGame.Client || MatrixPeerGame.GameNetClient));
+      if (!ClientConstructor) {
+        throw new Error('Biblioteka MatrixPeerGame nie została załadowana. Sprawdź czy plik dist/matrix-peer-game.js istnieje.');
+      }
+
+      client = new ClientConstructor({
         homeserver: homeserver,
         gameId: 'super-arena-2d'
       });
