@@ -156,6 +156,10 @@ declare class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
      */
     loginWithPassword(username: string, password: string): Promise<MatrixAuth>;
     /**
+     * Login using an existing access token (retrieves userId automatically via whoami)
+     */
+    loginWithToken(accessToken: string, customUserId?: string): Promise<MatrixAuth>;
+    /**
      * Set user display name
      */
     setDisplayName(name: string): Promise<void>;
@@ -680,6 +684,10 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
      * Log in using existing Matrix account
      */
     loginWithPassword(username: string, password: string): Promise<MatrixAuth>;
+    /**
+     * Log in using an existing Matrix Access Token (retrieves userId automatically)
+     */
+    loginWithToken(accessToken: string, userId?: string): Promise<MatrixAuth>;
     /**
      * Restore existing session with token
      */

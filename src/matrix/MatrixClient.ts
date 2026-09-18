@@ -103,7 +103,18 @@ export class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
    * Register as a guest account without requiring an email or password
    */
   async registerGuest(displayNickname?: string): Promise<MatrixAuth> {
-    const data = await this.request<any>('/_matrix/client/v3/register?kind=guest', 'POST', {});
+    let data: any;
+    try {
+      data = await this.request<any>('/_matrix/client/v3/register?kind=guest', 'POST', {});
+    } catch (err: any) {
+      if (err.status === 403 || String(err.message).includes('Registration has been disabled')) {
+        throw new Error(
+          `Serwer ${this.homeserver} ma wyłączoną rejestrację anonimowych gości ze względów antyspamowych. Zaloguj się kontem Matrix (Login + Hasło) lub Tokenem dostępu.`
+        );
+      }
+      throw err;
+    }
+
     this.auth = {
       userId: data.user_id,
       accessToken: data.access_token,
@@ -141,6 +152,30 @@ export class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
       deviceId: data.device_id,
       homeserver: this.homeserver
     };
+    return this.auth;
+  }
+
+  /**
+   * Login using an existing access token (retrieves userId automatically via whoami)
+   */
+  async loginWithToken(accessToken: string, customUserId?: string): Promise<MatrixAuth> {
+    this.auth = {
+      userId: customUserId || '',
+      accessToken,
+      homeserver: this.homeserver
+    };
+
+    if (!customUserId) {
+      try {
+        const whoami = await this.request<any>('/_matrix/client/v3/account/whoami', 'GET');
+        this.auth.userId = whoami.user_id;
+        this.auth.deviceId = whoami.device_id;
+      } catch (err: any) {
+        this.auth = null;
+        throw new Error('Nieprawidłowy token Matrix: ' + err.message);
+      }
+    }
+
     return this.auth;
   }
 

@@ -93,6 +93,16 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
   }
 
   /**
+   * Log in using an existing Matrix Access Token (retrieves userId automatically)
+   */
+  async loginWithToken(accessToken: string, userId?: string): Promise<MatrixAuth> {
+    const auth = await this.matrix.loginWithToken(accessToken, userId);
+    this.matrix.startSync();
+    this.emit('authenticated', auth);
+    return auth;
+  }
+
+  /**
    * Restore existing session with token
    */
   restoreSession(auth: MatrixAuth): void {

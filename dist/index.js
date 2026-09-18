@@ -156,7 +156,17 @@ var MatrixClient = class extends TypedEventEmitter {
    * Register as a guest account without requiring an email or password
    */
   async registerGuest(displayNickname) {
-    const data = await this.request("/_matrix/client/v3/register?kind=guest", "POST", {});
+    let data;
+    try {
+      data = await this.request("/_matrix/client/v3/register?kind=guest", "POST", {});
+    } catch (err) {
+      if (err.status === 403 || String(err.message).includes("Registration has been disabled")) {
+        throw new Error(
+          `Serwer ${this.homeserver} ma wy\u0142\u0105czon\u0105 rejestracj\u0119 anonimowych go\u015Bci ze wzgl\u0119d\xF3w antyspamowych. Zaloguj si\u0119 kontem Matrix (Login + Has\u0142o) lub Tokenem dost\u0119pu.`
+        );
+      }
+      throw err;
+    }
     this.auth = {
       userId: data.user_id,
       accessToken: data.access_token,
@@ -191,6 +201,27 @@ var MatrixClient = class extends TypedEventEmitter {
       deviceId: data.device_id,
       homeserver: this.homeserver
     };
+    return this.auth;
+  }
+  /**
+   * Login using an existing access token (retrieves userId automatically via whoami)
+   */
+  async loginWithToken(accessToken, customUserId) {
+    this.auth = {
+      userId: customUserId || "",
+      accessToken,
+      homeserver: this.homeserver
+    };
+    if (!customUserId) {
+      try {
+        const whoami = await this.request("/_matrix/client/v3/account/whoami", "GET");
+        this.auth.userId = whoami.user_id;
+        this.auth.deviceId = whoami.device_id;
+      } catch (err) {
+        this.auth = null;
+        throw new Error("Nieprawid\u0142owy token Matrix: " + err.message);
+      }
+    }
     return this.auth;
   }
   /**
@@ -1689,6 +1720,15 @@ var GameNetClient = class extends TypedEventEmitter {
    */
   async loginWithPassword(username, password) {
     const auth = await this.matrix.loginWithPassword(username, password);
+    this.matrix.startSync();
+    this.emit("authenticated", auth);
+    return auth;
+  }
+  /**
+   * Log in using an existing Matrix Access Token (retrieves userId automatically)
+   */
+  async loginWithToken(accessToken, userId) {
+    const auth = await this.matrix.loginWithToken(accessToken, userId);
     this.matrix.startSync();
     this.emit("authenticated", auth);
     return auth;
