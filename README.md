@@ -82,6 +82,33 @@ You do not need Node.js, npm, Webpack, or Vite to build multiplayer games. Simpl
 </html>
 ```
 
+## 🌐 Multi-Provider Matchmaking & Lobby Support
+
+Switch between multiple signaling and lobby backends with a single configuration line:
+
+| Provider (`provider`) | Player Authentication | Server Requirements | Key Advantages |
+| :--- | :--- | :--- | :--- |
+| **`'nostr'`** | **Zero-Auth** (Key generated in 1 ms) | **0 servers** (Open Damus, Nos.lol relays) | Open decentralized network, no passwords, anti-censorship |
+| **`'mqtt'`** | **Anonymous** | **0 servers** (Public HiveMQ, EMQX brokers) | Ultra-fast wildcard-based room discovery |
+| **`'firebase'`** | **Anonymous UID** | Google Realtime Database | Self-cleaning lobbies via disconnect triggers (`onDisconnect`) |
+| **`'matrix'`** | Matrix Account / Guest | matrix.org or Conduit | End-to-end encryption, federation, persistent chat |
+
+```javascript
+// Join matchmaking via open NOSTR protocol (zero accounts needed!):
+const net = new MatrixPeerGame.Client({
+  provider: 'nostr', // 'nostr' | 'mqtt' | 'firebase' | 'matrix'
+  gameId: 'babo-shooter'
+});
+
+// Discover public open lobbies:
+const lobbies = await net.listLobbies();
+
+// Create room and start playing WebRTC 60 FPS:
+const lobby = await net.createLobby({ name: 'Babo Arena #1', maxPlayers: 6 });
+lobby.on('playerJoined', (p) => console.log('Player joined:', p));
+lobby.on('chatMessage', (m) => console.log(`${m.senderNickname}: ${m.text}`));
+```
+
 ---
 
 ## 🕹️ Specialized Engines for Every Game Genre
@@ -181,7 +208,7 @@ The `examples/` directory contains runnable, zero-dependency HTML files:
 | **02. FPS Binary Vector3** | `examples/02-realtime-fps-arena/index.html` | High-frequency 18-byte binary Vector3 serialization benchmarks and raw buffer inspection. |
 | **03. RTS Deterministic Lockstep** | `examples/03-rts-lockstep/index.html` | Tactical unit squad movement using synchronized frame lockstep and order queueing. |
 | **04. Turn-Based Board Game** | `examples/04-turn-based/index.html` | Turn-based Tic-Tac-Toe / board game with turn timers and action history. |
-| **05. In-Game Matrix Chat (Cyber Gems)** | `examples/05-complete-game-matrix-chat/index.html` | Playable 2D gem collector with 60 FPS P2P WebRTC movement, live in-game Matrix chat, auto-login persistence, and shareable room links (`?room=` / `?p2proom=`). |
+| **05. Babo Balls 2D Shooter** | `examples/05-complete-game-matrix-chat/index.html` | Full 2D multiplayer shooter in Babo Violent style (rolling balls in a maze, WASD movement, mouse aim & shooting, health bars, frags, respawn) in 60 FPS WebRTC with **multi-provider lobby selection (NOSTR, MQTT, Firebase, Matrix, Direct P2P)** and live chat! |
 
 ---
 

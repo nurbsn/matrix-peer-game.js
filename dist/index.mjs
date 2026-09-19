@@ -464,221 +464,6 @@ var MatrixClient = class extends TypedEventEmitter {
   }
 };
 
-// src/lobby/LobbyRoom.ts
-var LobbyRoom = class extends TypedEventEmitter {
-  roomId;
-  matrix;
-  _hostUserId;
-  _hostPeerId;
-  _gameId;
-  _status = "waiting";
-  _maxPlayers;
-  _metadata = {};
-  _players = /* @__PURE__ */ new Map();
-  _chatMessages = [];
-  constructor(matrix, roomId, initialState) {
-    super();
-    this.matrix = matrix;
-    this.roomId = roomId;
-    this._hostUserId = initialState?.hostUserId || matrix.currentUserId || "";
-    this._hostPeerId = initialState?.hostPeerId;
-    this._gameId = initialState?.gameId || "generic";
-    this._maxPlayers = initialState?.maxPlayers || 4;
-    this._metadata = initialState?.metadata || {};
-    this._status = initialState?.status || "waiting";
-    this.setupMatrixListeners();
-  }
-  get hostUserId() {
-    return this._hostUserId;
-  }
-  get hostPeerId() {
-    return this._hostPeerId;
-  }
-  get isHost() {
-    return this.matrix.currentUserId === this._hostUserId;
-  }
-  get status() {
-    return this._status;
-  }
-  get players() {
-    return Array.from(this._players.values());
-  }
-  get gameId() {
-    return this._gameId;
-  }
-  get maxPlayers() {
-    return this._maxPlayers;
-  }
-  get metadata() {
-    return this._metadata;
-  }
-  get chatMessages() {
-    return [...this._chatMessages];
-  }
-  setupMatrixListeners() {
-    this.matrix.on("roomMessage", ({ roomId, message }) => {
-      if (roomId !== this.roomId) return;
-      this._chatMessages.push(message);
-      this.emit("chatMessage", message);
-    });
-    this.matrix.on("lobbyStateChange", ({ roomId, state }) => {
-      if (roomId !== this.roomId) return;
-      this.updateLobbyState(state);
-    });
-    this.matrix.on("playerStateChange", ({ roomId, userId, state }) => {
-      if (roomId !== this.roomId) return;
-      this.updatePlayerState(userId, state);
-    });
-  }
-  updateLobbyState(state) {
-    const prevStatus = this._status;
-    const prevHostPeerId = this._hostPeerId;
-    this._hostUserId = state.hostUserId;
-    this._hostPeerId = state.hostPeerId;
-    this._status = state.status;
-    this._maxPlayers = state.maxPlayers;
-    this._metadata = state.metadata || {};
-    if (state.hostPeerId && state.hostPeerId !== prevHostPeerId) {
-      this.emit("hostPeerIdAvailable", state.hostPeerId);
-    }
-    if (state.status === "in_game" && prevStatus !== "in_game") {
-      this.emit("gameStarted", {
-        hostPeerId: this._hostPeerId,
-        metadata: this._metadata
-      });
-    }
-    this.emit("lobbyUpdated", state);
-  }
-  updatePlayerState(userId, state) {
-    const isNew = !this._players.has(userId);
-    const player = {
-      userId,
-      nickname: state.nickname || userId.split(":")[0].replace("@", ""),
-      peerId: state.peerId,
-      isReady: state.isReady ?? false,
-      isHost: userId === this._hostUserId,
-      customData: state.customData
-    };
-    this._players.set(userId, player);
-    if (isNew) {
-      this.emit("playerJoined", player);
-    } else {
-      this.emit("playerUpdated", player);
-    }
-  }
-  /**
-   * Set player readiness in the lobby
-   */
-  async setReady(isReady, customData) {
-    const userId = this.matrix.currentUserId;
-    if (!userId) throw new Error("Not authenticated");
-    const existing = this._players.get(userId);
-    const content = {
-      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
-      peerId: existing?.peerId,
-      isReady,
-      customData: customData ?? existing?.customData
-    };
-    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
-    this.updatePlayerState(userId, content);
-  }
-  /**
-   * Set or update this player's PeerJS ID
-   */
-  async setPeerId(peerId) {
-    const userId = this.matrix.currentUserId;
-    if (!userId) throw new Error("Not authenticated");
-    const existing = this._players.get(userId);
-    const content = {
-      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
-      peerId,
-      isReady: existing?.isReady ?? false,
-      customData: existing?.customData
-    };
-    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
-    this.updatePlayerState(userId, content);
-    if (this.isHost) {
-      await this.setHostPeerId(peerId);
-    }
-  }
-  /**
-   * Set host peer ID (only callable by host)
-   */
-  async setHostPeerId(hostPeerId) {
-    if (!this.isHost) throw new Error("Only the host can set hostPeerId");
-    this._hostPeerId = hostPeerId;
-    const content = {
-      gameId: this._gameId,
-      hostUserId: this._hostUserId,
-      hostPeerId,
-      maxPlayers: this._maxPlayers,
-      status: this._status,
-      metadata: this._metadata
-    };
-    await this.matrix.setRoomState(this.roomId, "m.game.lobby", "", content);
-  }
-  /**
-   * Set custom player properties (e.g. skin, team, color)
-   */
-  async setCustomData(data) {
-    const userId = this.matrix.currentUserId;
-    if (!userId) throw new Error("Not authenticated");
-    const existing = this._players.get(userId);
-    const content = {
-      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
-      peerId: existing?.peerId,
-      isReady: existing?.isReady ?? false,
-      customData: { ...existing?.customData || {}, ...data }
-    };
-    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
-    this.updatePlayerState(userId, content);
-  }
-  /**
-   * Start the game (host only)
-   */
-  async startGame() {
-    if (!this.isHost) throw new Error("Only the host can start the game");
-    this._status = "in_game";
-    const content = {
-      gameId: this._gameId,
-      hostUserId: this._hostUserId,
-      hostPeerId: this._hostPeerId,
-      maxPlayers: this._maxPlayers,
-      status: "in_game",
-      metadata: this._metadata
-    };
-    await this.matrix.setRoomState(this.roomId, "m.game.lobby", "", content);
-    this.emit("gameStarted", { hostPeerId: this._hostPeerId, metadata: this._metadata });
-  }
-  /**
-   * Send a chat message into the lobby
-   */
-  async sendChatMessage(text) {
-    await this.matrix.sendChatMessage(this.roomId, text);
-  }
-  /**
-   * Leave this lobby
-   */
-  async leave() {
-    await this.matrix.leaveRoom(this.roomId);
-    this._players.clear();
-    this.removeAllListeners();
-  }
-};
-
-// src/lobby/LobbyDiscovery.ts
-var LobbyDiscovery = class {
-  static async searchLobbies(client, options) {
-    const rawRooms = await client.listPublicLobbies(options.gameId, options.limit || 30);
-    return rawRooms.filter((room) => {
-      if (!options.includeInGame && room.status === "in_game") {
-        return false;
-      }
-      return true;
-    });
-  }
-};
-
 // src/peer/PeerManager.ts
 import { Peer } from "peerjs";
 
@@ -1670,8 +1455,1652 @@ var SharedStateEngine = class extends TypedEventEmitter {
   }
 };
 
+// src/lobby/LobbyRoom.ts
+var LobbyRoom = class extends TypedEventEmitter {
+  roomId;
+  matrix;
+  _hostUserId;
+  _hostPeerId;
+  _gameId;
+  _status = "waiting";
+  _maxPlayers;
+  _metadata = {};
+  _players = /* @__PURE__ */ new Map();
+  _chatMessages = [];
+  constructor(matrix, roomId, initialState) {
+    super();
+    this.matrix = matrix;
+    this.roomId = roomId;
+    this._hostUserId = initialState?.hostUserId || matrix.currentUserId || "";
+    this._hostPeerId = initialState?.hostPeerId;
+    this._gameId = initialState?.gameId || "generic";
+    this._maxPlayers = initialState?.maxPlayers || 4;
+    this._metadata = initialState?.metadata || {};
+    this._status = initialState?.status || "waiting";
+    this.setupMatrixListeners();
+  }
+  get hostUserId() {
+    return this._hostUserId;
+  }
+  get hostPeerId() {
+    return this._hostPeerId;
+  }
+  get isHost() {
+    return this.matrix.currentUserId === this._hostUserId;
+  }
+  get status() {
+    return this._status;
+  }
+  get players() {
+    return Array.from(this._players.values());
+  }
+  get gameId() {
+    return this._gameId;
+  }
+  get maxPlayers() {
+    return this._maxPlayers;
+  }
+  get metadata() {
+    return this._metadata;
+  }
+  get chatMessages() {
+    return [...this._chatMessages];
+  }
+  setupMatrixListeners() {
+    this.matrix.on("roomMessage", ({ roomId, message }) => {
+      if (roomId !== this.roomId) return;
+      this._chatMessages.push(message);
+      this.emit("chatMessage", message);
+    });
+    this.matrix.on("lobbyStateChange", ({ roomId, state }) => {
+      if (roomId !== this.roomId) return;
+      this.updateLobbyState(state);
+    });
+    this.matrix.on("playerStateChange", ({ roomId, userId, state }) => {
+      if (roomId !== this.roomId) return;
+      this.updatePlayerState(userId, state);
+    });
+  }
+  updateLobbyState(state) {
+    const prevStatus = this._status;
+    const prevHostPeerId = this._hostPeerId;
+    this._hostUserId = state.hostUserId;
+    this._hostPeerId = state.hostPeerId;
+    this._status = state.status;
+    this._maxPlayers = state.maxPlayers;
+    this._metadata = state.metadata || {};
+    if (state.hostPeerId && state.hostPeerId !== prevHostPeerId) {
+      this.emit("hostPeerIdAvailable", state.hostPeerId);
+    }
+    if (state.status === "in_game" && prevStatus !== "in_game") {
+      this.emit("gameStarted", {
+        hostPeerId: this._hostPeerId,
+        metadata: this._metadata
+      });
+    }
+    this.emit("lobbyUpdated", state);
+  }
+  updatePlayerState(userId, state) {
+    const isNew = !this._players.has(userId);
+    const player = {
+      userId,
+      nickname: state.nickname || userId.split(":")[0].replace("@", ""),
+      peerId: state.peerId,
+      isReady: state.isReady ?? false,
+      isHost: userId === this._hostUserId,
+      customData: state.customData
+    };
+    this._players.set(userId, player);
+    if (isNew) {
+      this.emit("playerJoined", player);
+    } else {
+      this.emit("playerUpdated", player);
+    }
+  }
+  /**
+   * Set player readiness in the lobby
+   */
+  async setReady(isReady, customData) {
+    const userId = this.matrix.currentUserId;
+    if (!userId) throw new Error("Not authenticated");
+    const existing = this._players.get(userId);
+    const content = {
+      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
+      peerId: existing?.peerId,
+      isReady,
+      customData: customData ?? existing?.customData
+    };
+    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
+    this.updatePlayerState(userId, content);
+  }
+  /**
+   * Set or update this player's PeerJS ID
+   */
+  async setPeerId(peerId) {
+    const userId = this.matrix.currentUserId;
+    if (!userId) throw new Error("Not authenticated");
+    const existing = this._players.get(userId);
+    const content = {
+      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
+      peerId,
+      isReady: existing?.isReady ?? false,
+      customData: existing?.customData
+    };
+    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
+    this.updatePlayerState(userId, content);
+    if (this.isHost) {
+      await this.setHostPeerId(peerId);
+    }
+  }
+  /**
+   * Set host peer ID (only callable by host)
+   */
+  async setHostPeerId(hostPeerId) {
+    if (!this.isHost) throw new Error("Only the host can set hostPeerId");
+    this._hostPeerId = hostPeerId;
+    const content = {
+      gameId: this._gameId,
+      hostUserId: this._hostUserId,
+      hostPeerId,
+      maxPlayers: this._maxPlayers,
+      status: this._status,
+      metadata: this._metadata
+    };
+    await this.matrix.setRoomState(this.roomId, "m.game.lobby", "", content);
+  }
+  /**
+   * Set custom player properties (e.g. skin, team, color)
+   */
+  async setCustomData(data) {
+    const userId = this.matrix.currentUserId;
+    if (!userId) throw new Error("Not authenticated");
+    const existing = this._players.get(userId);
+    const content = {
+      nickname: existing?.nickname || userId.split(":")[0].replace("@", ""),
+      peerId: existing?.peerId,
+      isReady: existing?.isReady ?? false,
+      customData: { ...existing?.customData || {}, ...data }
+    };
+    await this.matrix.setRoomState(this.roomId, "m.game.player", userId, content);
+    this.updatePlayerState(userId, content);
+  }
+  /**
+   * Start the game (host only)
+   */
+  async startGame() {
+    if (!this.isHost) throw new Error("Only the host can start the game");
+    this._status = "in_game";
+    const content = {
+      gameId: this._gameId,
+      hostUserId: this._hostUserId,
+      hostPeerId: this._hostPeerId,
+      maxPlayers: this._maxPlayers,
+      status: "in_game",
+      metadata: this._metadata
+    };
+    await this.matrix.setRoomState(this.roomId, "m.game.lobby", "", content);
+    this.emit("gameStarted", { hostPeerId: this._hostPeerId, metadata: this._metadata });
+  }
+  /**
+   * Send a chat message into the lobby
+   */
+  async sendChatMessage(text) {
+    await this.matrix.sendChatMessage(this.roomId, text);
+  }
+  /**
+   * Leave this lobby
+   */
+  async leave() {
+    await this.matrix.leaveRoom(this.roomId);
+    this._players.clear();
+    this.removeAllListeners();
+  }
+};
+
+// src/lobby/LobbyDiscovery.ts
+var LobbyDiscovery = class {
+  static async searchLobbies(client, options) {
+    const rawRooms = await client.listPublicLobbies(options.gameId, options.limit || 30);
+    return rawRooms.filter((room) => {
+      if (!options.includeInGame && room.status === "in_game") {
+        return false;
+      }
+      return true;
+    });
+  }
+};
+
+// src/providers/matrix/MatrixLobbyProvider.ts
+var MatrixLobbyProvider = class extends TypedEventEmitter {
+  providerType = "matrix";
+  matrix;
+  constructor(homeserver = "https://matrix.org") {
+    super();
+    this.matrix = new MatrixClient(homeserver);
+    this.matrix.on("error", (err) => this.emit("error", err));
+  }
+  get currentUserId() {
+    return this.matrix.currentUserId;
+  }
+  get isConnected() {
+    return this.matrix.isAuthenticated;
+  }
+  async connect(authOptions) {
+    if (authOptions?.token) {
+      await this.matrix.loginWithToken(authOptions.token, authOptions.userId);
+    } else if (authOptions?.username && authOptions?.password) {
+      await this.matrix.loginWithPassword(authOptions.username, authOptions.password);
+    } else if (authOptions?.guestNickname) {
+      await this.matrix.registerGuest(authOptions.guestNickname);
+    }
+    this.matrix.startSync();
+    this.emit("connected", void 0);
+  }
+  async disconnect() {
+    this.matrix.stopSync();
+    this.emit("disconnected", void 0);
+  }
+  async listLobbies(gameId) {
+    const list = await LobbyDiscovery.searchLobbies(this.matrix, { gameId, limit: 30 });
+    return list.map((l) => ({
+      roomId: l.roomId,
+      name: l.name,
+      gameId: l.gameId,
+      hostNickname: l.hostNickname || "Host",
+      numPlayers: l.numJoinedMembers ?? l.numMembers ?? 1,
+      maxPlayers: l.maxPlayers,
+      status: l.status,
+      metadata: l.metadata
+    }));
+  }
+  async createLobby(options) {
+    const roomId = await this.matrix.createLobbyRoom({
+      name: options.name,
+      topic: options.topic,
+      gameId: options.gameId || "game",
+      maxPlayers: options.maxPlayers ?? 4,
+      isPublic: options.isPublic ?? true,
+      metadata: options.metadata
+    });
+    const lobby = new LobbyRoom(this.matrix, roomId, {
+      gameId: options.gameId || "game",
+      hostUserId: this.matrix.currentUserId || "",
+      maxPlayers: options.maxPlayers ?? 4,
+      metadata: options.metadata,
+      status: "waiting"
+    });
+    return lobby;
+  }
+  async joinLobby(roomId, nickname) {
+    const joinedRoomId = await this.matrix.joinRoom(roomId);
+    if (nickname) {
+      try {
+        await this.matrix.setDisplayName(nickname);
+      } catch {
+      }
+    }
+    const lobby = new LobbyRoom(this.matrix, joinedRoomId, {
+      status: "waiting"
+    });
+    return lobby;
+  }
+};
+
+// src/providers/nostr/crypto.ts
+var P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+var N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bb5bf5670f93448e2dn;
+var Gx = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+var Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
+var G = { x: Gx, y: Gy };
+function mod(a, m) {
+  const result = a % m;
+  return result >= 0n ? result : result + m;
+}
+function modPow(base, exp, m) {
+  let res = 1n;
+  let b = mod(base, m);
+  let e = exp;
+  while (e > 0n) {
+    if (e & 1n) res = res * b % m;
+    b = b * b % m;
+    e >>= 1n;
+  }
+  return res;
+}
+function modInverse(a, m) {
+  return modPow(a, m - 2n, m);
+}
+function pointAdd(P1, P2) {
+  if (!P1) return P2;
+  if (!P2) return P1;
+  if (P1.x === P2.x) {
+    if (P1.y !== P2.y) return null;
+    const num2 = mod(3n * P1.x * P1.x, P);
+    const den2 = mod(2n * P1.y, P);
+    const s2 = mod(num2 * modInverse(den2, P), P);
+    const rx2 = mod(s2 * s2 - 2n * P1.x, P);
+    const ry2 = mod(s2 * (P1.x - rx2) - P1.y, P);
+    return { x: rx2, y: ry2 };
+  }
+  const num = mod(P2.y - P1.y, P);
+  const den = mod(P2.x - P1.x, P);
+  const s = mod(num * modInverse(den, P), P);
+  const rx = mod(s * s - P1.x - P2.x, P);
+  const ry = mod(s * (P1.x - rx) - P1.y, P);
+  return { x: rx, y: ry };
+}
+function pointMultiply(k, pt = G) {
+  let curr = pt;
+  let result = null;
+  let scalar = k;
+  while (scalar > 0n) {
+    if (scalar & 1n) {
+      result = pointAdd(result, curr);
+    }
+    curr = pointAdd(curr, curr);
+    scalar >>= 1n;
+  }
+  return result;
+}
+function toHex32(n) {
+  const positive = mod(n, 2n ** 256n);
+  return positive.toString(16).padStart(64, "0").slice(-64);
+}
+function bytesToHex(bytes) {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+async function sha256Bytes(data) {
+  if (typeof crypto !== "undefined" && crypto.subtle && crypto.subtle.digest) {
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    return new Uint8Array(hashBuffer);
+  }
+  return syncSha256(data);
+}
+async function sha256Hex(data) {
+  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  const hash = await sha256Bytes(bytes);
+  return bytesToHex(hash);
+}
+async function taggedHash(tag, ...msgs) {
+  const tagBytes = new TextEncoder().encode(tag);
+  const tagHash = await sha256Bytes(tagBytes);
+  let totalLen = tagHash.length * 2;
+  for (const m of msgs) totalLen += m.length;
+  const concat = new Uint8Array(totalLen);
+  concat.set(tagHash, 0);
+  concat.set(tagHash, tagHash.length);
+  let offset = tagHash.length * 2;
+  for (const m of msgs) {
+    concat.set(m, offset);
+    offset += m.length;
+  }
+  return sha256Bytes(concat);
+}
+function generateKeyPair() {
+  const randBytes = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(randBytes);
+  } else {
+    for (let i = 0; i < 32; i++) randBytes[i] = Math.floor(Math.random() * 256);
+  }
+  let d = BigInt("0x" + bytesToHex(randBytes)) % N;
+  if (d === 0n) d = 1n;
+  const P2 = pointMultiply(d, G);
+  if (P2.y % 2n !== 0n) {
+    d = N - d;
+  }
+  return {
+    secretKey: toHex32(d),
+    publicKey: toHex32(P2.x)
+  };
+}
+async function schnorrSign(msgHashHex, secretKeyHex) {
+  let d = BigInt("0x" + secretKeyHex);
+  const P0 = pointMultiply(d, G);
+  if (P0.y % 2n !== 0n) {
+    d = N - d;
+  }
+  const pxBytes = hexToBytes(toHex32(P0.x));
+  const msgBytes = hexToBytes(msgHashHex);
+  const randAux = new Uint8Array(32);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(randAux);
+  }
+  const t = await taggedHash("BIP0340/nonce", hexToBytes(toHex32(d)), pxBytes, msgBytes, randAux);
+  let k = BigInt("0x" + bytesToHex(t)) % N;
+  if (k === 0n) k = 1n;
+  const R = pointMultiply(k, G);
+  if (R.y % 2n !== 0n) {
+    k = N - k;
+  }
+  const rxBytes = hexToBytes(toHex32(R.x));
+  const eHash = await taggedHash("BIP0340/challenge", rxBytes, pxBytes, msgBytes);
+  const e = BigInt("0x" + bytesToHex(eHash)) % N;
+  const s = mod(k + e * d, N);
+  return toHex32(R.x) + toHex32(s);
+}
+function syncSha256(data) {
+  const K = [
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ];
+  let h0 = 1779033703, h1 = 3144134277, h2 = 1013904242, h3 = 2773480762;
+  let h4 = 1359893119, h5 = 2600822924, h6 = 528734635, h7 = 1541459225;
+  const len = data.length;
+  const bitLen = len * 8;
+  const padLen = (len + 8 >> 6) + 1 << 6;
+  const msg = new Uint8Array(padLen);
+  msg.set(data);
+  msg[len] = 128;
+  const view = new DataView(msg.buffer);
+  view.setUint32(padLen - 4, bitLen, false);
+  const W = new Uint32Array(64);
+  for (let i = 0; i < padLen; i += 64) {
+    for (let t = 0; t < 16; t++) {
+      W[t] = view.getUint32(i + t * 4, false);
+    }
+    for (let t = 16; t < 64; t++) {
+      const s0 = (W[t - 15] >>> 7 | W[t - 15] << 25) ^ (W[t - 15] >>> 18 | W[t - 15] << 14) ^ W[t - 15] >>> 3;
+      const s1 = (W[t - 2] >>> 17 | W[t - 2] << 15) ^ (W[t - 2] >>> 19 | W[t - 2] << 13) ^ W[t - 2] >>> 10;
+      W[t] = W[t - 16] + s0 + W[t - 7] + s1 | 0;
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+    for (let t = 0; t < 64; t++) {
+      const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
+      const ch = e & f ^ ~e & g;
+      const temp1 = h + S1 + ch + K[t] + W[t] | 0;
+      const S0 = (a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10);
+      const maj = a & b ^ a & c ^ b & c;
+      const temp2 = S0 + maj | 0;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temp1 | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2 | 0;
+    }
+    h0 = h0 + a | 0;
+    h1 = h1 + b | 0;
+    h2 = h2 + c | 0;
+    h3 = h3 + d | 0;
+    h4 = h4 + e | 0;
+    h5 = h5 + f | 0;
+    h6 = h6 + g | 0;
+    h7 = h7 + h | 0;
+  }
+  const out = new Uint8Array(32);
+  const outView = new DataView(out.buffer);
+  outView.setUint32(0, h0, false);
+  outView.setUint32(4, h1, false);
+  outView.setUint32(8, h2, false);
+  outView.setUint32(12, h3, false);
+  outView.setUint32(16, h4, false);
+  outView.setUint32(20, h5, false);
+  outView.setUint32(24, h6, false);
+  outView.setUint32(28, h7, false);
+  return out;
+}
+
+// src/providers/nostr/NostrProvider.ts
+var DEFAULT_NOSTR_RELAYS = [
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.snort.social"
+];
+var NostrRelayPool = class {
+  constructor(relayUrls = DEFAULT_NOSTR_RELAYS) {
+    this.relayUrls = relayUrls;
+  }
+  relayUrls;
+  sockets = /* @__PURE__ */ new Map();
+  messageListeners = /* @__PURE__ */ new Set();
+  eoseListeners = /* @__PURE__ */ new Map();
+  async connect() {
+    if (typeof WebSocket === "undefined") return;
+    for (const url of this.relayUrls) {
+      if (this.sockets.has(url)) continue;
+      try {
+        const ws = new WebSocket(url);
+        ws.onmessage = (msg) => {
+          try {
+            const data = JSON.parse(msg.data);
+            if (Array.isArray(data)) {
+              const [type, subId, payload] = data;
+              if (type === "EVENT" && payload) {
+                this.messageListeners.forEach((listener) => listener(payload, url));
+              } else if (type === "EOSE" && subId) {
+                const cb = this.eoseListeners.get(subId);
+                if (cb) cb();
+              }
+            }
+          } catch {
+          }
+        };
+        ws.onerror = () => {
+        };
+        this.sockets.set(url, ws);
+      } catch {
+      }
+    }
+  }
+  onMessage(listener) {
+    this.messageListeners.add(listener);
+    return () => this.messageListeners.delete(listener);
+  }
+  send(message) {
+    const raw = JSON.stringify(message);
+    for (const ws of this.sockets.values()) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(raw);
+        } catch {
+        }
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ws.addEventListener("open", () => {
+          try {
+            ws.send(raw);
+          } catch {
+          }
+        }, { once: true });
+      }
+    }
+  }
+  subscribe(subId, filter, onEose) {
+    if (onEose) this.eoseListeners.set(subId, onEose);
+    this.send(["REQ", subId, filter]);
+  }
+  unsubscribe(subId) {
+    this.eoseListeners.delete(subId);
+    this.send(["CLOSE", subId]);
+  }
+  close() {
+    for (const ws of this.sockets.values()) {
+      try {
+        ws.close();
+      } catch {
+      }
+    }
+    this.sockets.clear();
+    this.messageListeners.clear();
+    this.eoseListeners.clear();
+  }
+};
+var NostrLobbySession = class extends TypedEventEmitter {
+  constructor(pool, keyPair, options) {
+    super();
+    this.pool = pool;
+    this.keyPair = keyPair;
+    this.roomId = options.roomId;
+    this.isHost = options.isHost;
+    this.gameId = options.gameId;
+    this.hostUserId = options.hostUserId;
+    this._hostPeerId = options.hostPeerId;
+    this.maxPlayers = options.maxPlayers ?? 4;
+    this.metadata = options.metadata || {};
+    this.subId = "sub_" + Math.random().toString(36).substring(2, 9);
+    this._players.set(keyPair.publicKey, {
+      userId: keyPair.publicKey,
+      nickname: options.nickname,
+      isHost: options.isHost,
+      isReady: options.isHost,
+      peerId: options.hostPeerId
+    });
+    this.initNetwork();
+  }
+  pool;
+  keyPair;
+  roomId;
+  isHost;
+  gameId;
+  hostUserId;
+  maxPlayers;
+  metadata;
+  _status = "waiting";
+  _hostPeerId;
+  _players = /* @__PURE__ */ new Map();
+  _chatMessages = [];
+  heartbeatTimer = null;
+  subId;
+  unsubscribeMessages = null;
+  get players() {
+    return Array.from(this._players.values());
+  }
+  get chatMessages() {
+    return [...this._chatMessages];
+  }
+  get status() {
+    return this._status;
+  }
+  get hostPeerId() {
+    return this._hostPeerId;
+  }
+  async publishEvent(kind, tags, contentObj) {
+    const content = typeof contentObj === "string" ? contentObj : JSON.stringify(contentObj);
+    const createdAt = Math.floor(Date.now() / 1e3);
+    const serialized = JSON.stringify([0, this.keyPair.publicKey, createdAt, kind, tags, content]);
+    const id = await sha256Hex(serialized);
+    const sig = await schnorrSign(id, this.keyPair.secretKey);
+    const event = {
+      id,
+      pubkey: this.keyPair.publicKey,
+      created_at: createdAt,
+      kind,
+      tags,
+      content,
+      sig
+    };
+    this.pool.send(["EVENT", event]);
+  }
+  initNetwork() {
+    this.unsubscribeMessages = this.pool.onMessage((event) => {
+      this.handleIncomingEvent(event);
+    });
+    this.pool.subscribe(this.subId, {
+      kinds: [20001, 20002, 20003],
+      "#d": [this.roomId],
+      since: Math.floor(Date.now() / 1e3) - 30
+    });
+    if (this.isHost) {
+      this.broadcastLobbyHeartbeat();
+      this.heartbeatTimer = setInterval(() => {
+        this.broadcastLobbyHeartbeat();
+      }, 8e3);
+    } else {
+      const self = this._players.get(this.keyPair.publicKey);
+      if (self) {
+        this.publishEvent(20002, [["d", this.roomId]], {
+          type: "player_update",
+          player: self
+        });
+      }
+    }
+  }
+  broadcastLobbyHeartbeat() {
+    this.publishEvent(20001, [["d", this.roomId], ["t", "mpg-lobby"], ["g", this.gameId]], {
+      name: this.metadata.name || "Nostr Lobby",
+      gameId: this.gameId,
+      hostUserId: this.hostUserId,
+      hostNickname: this._players.get(this.hostUserId)?.nickname || "Host",
+      hostPeerId: this._hostPeerId,
+      maxPlayers: this.maxPlayers,
+      numPlayers: this._players.size,
+      status: this._status,
+      metadata: this.metadata
+    });
+  }
+  handleIncomingEvent(event) {
+    const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+    if (dTag !== this.roomId) return;
+    try {
+      const data = JSON.parse(event.content);
+      if (event.kind === 20001) {
+        if (data.status && data.status !== this._status) {
+          this._status = data.status;
+        }
+        if (data.hostPeerId && data.hostPeerId !== this._hostPeerId) {
+          this._hostPeerId = data.hostPeerId;
+          this.emit("hostPeerIdAvailable", data.hostPeerId);
+        }
+        this.emit("lobbyUpdated", data);
+      } else if (event.kind === 20002) {
+        if (data.type === "player_update" && data.player) {
+          const p = data.player;
+          const isNew = !this._players.has(p.userId);
+          this._players.set(p.userId, p);
+          if (p.isHost && p.peerId && p.peerId !== this._hostPeerId) {
+            this._hostPeerId = p.peerId;
+            this.emit("hostPeerIdAvailable", p.peerId);
+          }
+          if (isNew) {
+            this.emit("playerJoined", p);
+          } else {
+            this.emit("playerUpdated", p);
+          }
+        } else if (data.type === "start_game") {
+          this._status = "in_game";
+          if (data.hostPeerId) this._hostPeerId = data.hostPeerId;
+          this.emit("gameStarted", {
+            hostPeerId: data.hostPeerId || this._hostPeerId,
+            metadata: data.metadata || {}
+          });
+        }
+      } else if (event.kind === 20003) {
+        const chatMsg = {
+          id: event.id,
+          senderUserId: event.pubkey,
+          senderNickname: data.nickname || event.pubkey.substring(0, 8),
+          text: data.text,
+          timestamp: event.created_at * 1e3
+        };
+        this._chatMessages.push(chatMsg);
+        this.emit("chatMessage", chatMsg);
+      }
+    } catch {
+    }
+  }
+  async setReady(ready, data) {
+    const self = this._players.get(this.keyPair.publicKey);
+    if (!self) return;
+    self.isReady = ready;
+    if (data) self.data = { ...self.data, ...data };
+    await this.publishEvent(20002, [["d", this.roomId]], {
+      type: "player_update",
+      player: self
+    });
+    this.emit("playerUpdated", self);
+  }
+  async setPeerId(peerId) {
+    const self = this._players.get(this.keyPair.publicKey);
+    if (!self) return;
+    self.peerId = peerId;
+    if (this.isHost) {
+      this._hostPeerId = peerId;
+      this.emit("hostPeerIdAvailable", peerId);
+    }
+    await this.publishEvent(20002, [["d", this.roomId]], {
+      type: "player_update",
+      player: self
+    });
+  }
+  async sendChatMessage(text) {
+    const self = this._players.get(this.keyPair.publicKey);
+    const nickname = self?.nickname || "Gracz";
+    await this.publishEvent(20003, [["d", this.roomId]], {
+      text,
+      nickname
+    });
+  }
+  async startGame(metadata) {
+    if (!this.isHost) return;
+    this._status = "in_game";
+    await this.publishEvent(20002, [["d", this.roomId]], {
+      type: "start_game",
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    });
+    this.emit("gameStarted", {
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    });
+  }
+  async leave() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.unsubscribeMessages) this.unsubscribeMessages();
+    this.pool.unsubscribe(this.subId);
+  }
+};
+var NostrLobbyProvider = class extends TypedEventEmitter {
+  providerType = "nostr";
+  pool;
+  keyPair;
+  _isConnected = false;
+  constructor(relays = DEFAULT_NOSTR_RELAYS) {
+    super();
+    this.pool = new NostrRelayPool(relays);
+    this.keyPair = this.loadOrGenerateKeys();
+  }
+  get currentUserId() {
+    return this.keyPair.publicKey;
+  }
+  get isConnected() {
+    return this._isConnected;
+  }
+  loadOrGenerateKeys() {
+    try {
+      if (typeof localStorage !== "undefined") {
+        const stored = localStorage.getItem("mpg_nostr_keypair");
+        if (stored) return JSON.parse(stored);
+      }
+    } catch {
+    }
+    const keys = generateKeyPair();
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("mpg_nostr_keypair", JSON.stringify(keys));
+      }
+    } catch {
+    }
+    return keys;
+  }
+  async connect(authOptions) {
+    if (authOptions?.secretKey) {
+      this.keyPair = {
+        secretKey: authOptions.secretKey,
+        publicKey: authOptions.publicKey
+      };
+    }
+    await this.pool.connect();
+    this._isConnected = true;
+    this.emit("connected", void 0);
+  }
+  async disconnect() {
+    this.pool.close();
+    this._isConnected = false;
+    this.emit("disconnected", void 0);
+  }
+  async listLobbies(gameId) {
+    return new Promise((resolve) => {
+      const subId = "list_" + Math.random().toString(36).substring(2, 9);
+      const lobbiesMap = /* @__PURE__ */ new Map();
+      const unsubscribe = this.pool.onMessage((event) => {
+        if (event.kind !== 20001) return;
+        const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+        if (!dTag) return;
+        try {
+          const data = JSON.parse(event.content);
+          if (data.gameId !== gameId) return;
+          const prev = lobbiesMap.get(dTag);
+          if (!prev || event.created_at > prev.createdAt) {
+            lobbiesMap.set(dTag, {
+              createdAt: event.created_at,
+              info: {
+                roomId: dTag,
+                name: data.name || "Pok\xF3j Gry",
+                gameId: data.gameId || gameId,
+                hostNickname: data.hostNickname || "Host",
+                numPlayers: data.numPlayers || 1,
+                maxPlayers: data.maxPlayers || 4,
+                status: data.status || "waiting",
+                metadata: data.metadata
+              }
+            });
+          }
+        } catch {
+        }
+      });
+      this.pool.subscribe(
+        subId,
+        {
+          kinds: [20001],
+          "#t": ["mpg-lobby"],
+          "#g": [gameId],
+          since: Math.floor(Date.now() / 1e3) - 45
+        },
+        () => {
+          finish();
+        }
+      );
+      const timeout = setTimeout(() => {
+        finish();
+      }, 1500);
+      const finish = () => {
+        clearTimeout(timeout);
+        unsubscribe();
+        this.pool.unsubscribe(subId);
+        resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
+      };
+    });
+  }
+  async createLobby(options) {
+    const roomId = "nostr_" + Math.random().toString(36).substring(2, 12);
+    const session = new NostrLobbySession(this.pool, this.keyPair, {
+      roomId,
+      isHost: true,
+      gameId: options.gameId || "game",
+      hostUserId: this.keyPair.publicKey,
+      maxPlayers: options.maxPlayers ?? 4,
+      metadata: { name: options.name, ...options.metadata },
+      nickname: options.nickname || "Gracz"
+    });
+    return session;
+  }
+  async joinLobby(roomId, nickname) {
+    const session = new NostrLobbySession(this.pool, this.keyPair, {
+      roomId,
+      isHost: false,
+      gameId: "game",
+      hostUserId: "",
+      nickname: nickname || "Gracz"
+    });
+    return session;
+  }
+};
+
+// src/providers/mqtt/MqttProvider.ts
+var DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
+var MinimalMqttClient = class {
+  constructor(brokerUrl = DEFAULT_MQTT_BROKER, clientId = "mpg_" + Math.random().toString(36).substring(2, 11)) {
+    this.brokerUrl = brokerUrl;
+    this.clientId = clientId;
+  }
+  brokerUrl;
+  clientId;
+  ws = null;
+  messageListeners = /* @__PURE__ */ new Set();
+  pingInterval = null;
+  isConnected = false;
+  packetIdCounter = 1;
+  async connect() {
+    if (typeof WebSocket === "undefined") return;
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(this.brokerUrl, "mqtt");
+        this.ws.binaryType = "arraybuffer";
+        this.ws.onopen = () => {
+          this.sendConnect();
+        };
+        this.ws.onmessage = (event) => {
+          this.handlePacket(new Uint8Array(event.data), resolve);
+        };
+        this.ws.onerror = (err) => {
+          if (!this.isConnected) reject(err);
+        };
+        this.ws.onclose = () => {
+          this.isConnected = false;
+          if (this.pingInterval) clearInterval(this.pingInterval);
+        };
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  onMessage(cb) {
+    this.messageListeners.add(cb);
+    return () => this.messageListeners.delete(cb);
+  }
+  sendConnect() {
+    const protocolName = [0, 4, 77, 81, 84, 84];
+    const protocolLevel = 4;
+    const connectFlags = 2;
+    const keepAlive = [0, 60];
+    const clientBytes = new TextEncoder().encode(this.clientId);
+    const clientLen = [clientBytes.length >> 8, clientBytes.length & 255];
+    const varPayload = [
+      ...protocolName,
+      protocolLevel,
+      connectFlags,
+      ...keepAlive,
+      ...clientLen,
+      ...clientBytes
+    ];
+    const lenBytes = this.encodeLength(varPayload.length);
+    const packet = new Uint8Array([16, ...lenBytes, ...varPayload]);
+    this.sendRaw(packet);
+  }
+  publish(topic, message) {
+    const topicBytes = new TextEncoder().encode(topic);
+    const topicLen = [topicBytes.length >> 8, topicBytes.length & 255];
+    const msgBytes = new TextEncoder().encode(message);
+    const varPayload = [...topicLen, ...topicBytes, ...msgBytes];
+    const lenBytes = this.encodeLength(varPayload.length);
+    const packet = new Uint8Array([48, ...lenBytes, ...varPayload]);
+    this.sendRaw(packet);
+  }
+  subscribe(topic) {
+    const pid = this.packetIdCounter++;
+    const packetId = [pid >> 8, pid & 255];
+    const topicBytes = new TextEncoder().encode(topic);
+    const topicLen = [topicBytes.length >> 8, topicBytes.length & 255];
+    const qos = 0;
+    const varPayload = [...packetId, ...topicLen, ...topicBytes, qos];
+    const lenBytes = this.encodeLength(varPayload.length);
+    const packet = new Uint8Array([130, ...lenBytes, ...varPayload]);
+    this.sendRaw(packet);
+  }
+  sendRaw(bytes) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(bytes.buffer);
+    }
+  }
+  handlePacket(bytes, onConnected) {
+    if (bytes.length === 0) return;
+    const packetType = bytes[0] >> 4;
+    if (packetType === 2) {
+      this.isConnected = true;
+      this.pingInterval = setInterval(() => {
+        this.sendRaw(new Uint8Array([192, 0]));
+      }, 25e3);
+      onConnected();
+    } else if (packetType === 3) {
+      let offset = 1;
+      while (bytes[offset] & 128) offset++;
+      offset++;
+      const topicLen = bytes[offset] << 8 | bytes[offset + 1];
+      offset += 2;
+      const topic = new TextDecoder().decode(bytes.subarray(offset, offset + topicLen));
+      offset += topicLen;
+      const payload = new TextDecoder().decode(bytes.subarray(offset));
+      this.messageListeners.forEach((cb) => cb(topic, payload));
+    }
+  }
+  encodeLength(len) {
+    const out = [];
+    do {
+      let digit = len % 128;
+      len = Math.floor(len / 128);
+      if (len > 0) digit |= 128;
+      out.push(digit);
+    } while (len > 0);
+    return out;
+  }
+  close() {
+    if (this.pingInterval) clearInterval(this.pingInterval);
+    if (this.ws) {
+      try {
+        this.sendRaw(new Uint8Array([224, 0]));
+        this.ws.close();
+      } catch {
+      }
+    }
+    this.messageListeners.clear();
+  }
+};
+function topicMatches(pattern, topic) {
+  const pParts = pattern.split("/");
+  const tParts = topic.split("/");
+  for (let i = 0; i < pParts.length; i++) {
+    if (pParts[i] === "#") return true;
+    if (pParts[i] === "+") {
+      if (i >= tParts.length) return false;
+      continue;
+    }
+    if (pParts[i] !== tParts[i]) return false;
+  }
+  return pParts.length === tParts.length;
+}
+var MqttLobbySession = class extends TypedEventEmitter {
+  constructor(mqtt, myUserId, options) {
+    super();
+    this.mqtt = mqtt;
+    this.myUserId = myUserId;
+    this.roomId = options.roomId;
+    this.isHost = options.isHost;
+    this.gameId = options.gameId;
+    this.hostUserId = options.hostUserId;
+    this._hostPeerId = options.hostPeerId;
+    this.maxPlayers = options.maxPlayers ?? 4;
+    this.metadata = options.metadata || {};
+    this.roomTopic = `mpg/${this.gameId}/room/${this.roomId}/events`;
+    this.lobbyTopic = `mpg/${this.gameId}/lobbies/${this.roomId}`;
+    this._players.set(myUserId, {
+      userId: myUserId,
+      nickname: options.nickname,
+      isHost: options.isHost,
+      isReady: options.isHost,
+      peerId: options.hostPeerId
+    });
+    this.initNetwork();
+  }
+  mqtt;
+  myUserId;
+  roomId;
+  isHost;
+  gameId;
+  hostUserId;
+  maxPlayers;
+  metadata;
+  _status = "waiting";
+  _hostPeerId;
+  _players = /* @__PURE__ */ new Map();
+  _chatMessages = [];
+  heartbeatTimer = null;
+  unsubscribeMessages = null;
+  roomTopic;
+  lobbyTopic;
+  get players() {
+    return Array.from(this._players.values());
+  }
+  get chatMessages() {
+    return [...this._chatMessages];
+  }
+  get status() {
+    return this._status;
+  }
+  get hostPeerId() {
+    return this._hostPeerId;
+  }
+  initNetwork() {
+    this.mqtt.subscribe(this.roomTopic);
+    this.unsubscribeMessages = this.mqtt.onMessage((topic, payload) => {
+      if (topic !== this.roomTopic) return;
+      try {
+        const msg = JSON.parse(payload);
+        this.handleRoomMessage(msg);
+      } catch {
+      }
+    });
+    if (this.isHost) {
+      this.broadcastLobbyHeartbeat();
+      this.heartbeatTimer = setInterval(() => {
+        this.broadcastLobbyHeartbeat();
+      }, 5e3);
+    } else {
+      const self = this._players.get(this.myUserId);
+      if (self) {
+        this.mqtt.publish(this.roomTopic, JSON.stringify({
+          type: "player_update",
+          player: self
+        }));
+      }
+    }
+  }
+  broadcastLobbyHeartbeat() {
+    const info = {
+      roomId: this.roomId,
+      name: this.metadata.name || "MQTT Lobby",
+      gameId: this.gameId,
+      hostNickname: this._players.get(this.hostUserId)?.nickname || "Host",
+      numPlayers: this._players.size,
+      maxPlayers: this.maxPlayers,
+      status: this._status,
+      metadata: { ...this.metadata, hostPeerId: this._hostPeerId }
+    };
+    this.mqtt.publish(this.lobbyTopic, JSON.stringify(info));
+  }
+  handleRoomMessage(msg) {
+    if (msg.type === "player_update" && msg.player) {
+      const p = msg.player;
+      const isNew = !this._players.has(p.userId);
+      this._players.set(p.userId, p);
+      if (p.isHost && p.peerId && p.peerId !== this._hostPeerId) {
+        this._hostPeerId = p.peerId;
+        this.emit("hostPeerIdAvailable", p.peerId);
+      }
+      if (isNew) {
+        this.emit("playerJoined", p);
+        if (this.isHost) {
+          const self = this._players.get(this.myUserId);
+          if (self) {
+            this.mqtt.publish(this.roomTopic, JSON.stringify({
+              type: "player_update",
+              player: self
+            }));
+          }
+        }
+      } else {
+        this.emit("playerUpdated", p);
+      }
+    } else if (msg.type === "chat" && msg.message) {
+      const chatMsg = msg.message;
+      this._chatMessages.push(chatMsg);
+      this.emit("chatMessage", chatMsg);
+    } else if (msg.type === "start_game") {
+      this._status = "in_game";
+      if (msg.hostPeerId) this._hostPeerId = msg.hostPeerId;
+      this.emit("gameStarted", {
+        hostPeerId: msg.hostPeerId || this._hostPeerId,
+        metadata: msg.metadata || {}
+      });
+    }
+  }
+  async setReady(ready, data) {
+    const self = this._players.get(this.myUserId);
+    if (!self) return;
+    self.isReady = ready;
+    if (data) self.data = { ...self.data, ...data };
+    this.mqtt.publish(this.roomTopic, JSON.stringify({
+      type: "player_update",
+      player: self
+    }));
+    this.emit("playerUpdated", self);
+  }
+  async setPeerId(peerId) {
+    const self = this._players.get(this.myUserId);
+    if (!self) return;
+    self.peerId = peerId;
+    if (this.isHost) {
+      this._hostPeerId = peerId;
+      this.emit("hostPeerIdAvailable", peerId);
+      this.broadcastLobbyHeartbeat();
+    }
+    this.mqtt.publish(this.roomTopic, JSON.stringify({
+      type: "player_update",
+      player: self
+    }));
+  }
+  async sendChatMessage(text) {
+    const self = this._players.get(this.myUserId);
+    const chatMsg = {
+      id: Math.random().toString(36).substring(2, 9),
+      senderUserId: this.myUserId,
+      senderNickname: self?.nickname || "Gracz",
+      text,
+      timestamp: Date.now()
+    };
+    this.mqtt.publish(this.roomTopic, JSON.stringify({
+      type: "chat",
+      message: chatMsg
+    }));
+  }
+  async startGame(metadata) {
+    if (!this.isHost) return;
+    this._status = "in_game";
+    this.broadcastLobbyHeartbeat();
+    this.mqtt.publish(this.roomTopic, JSON.stringify({
+      type: "start_game",
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    }));
+    this.emit("gameStarted", {
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    });
+  }
+  async leave() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.unsubscribeMessages) this.unsubscribeMessages();
+  }
+};
+var MqttLobbyProvider = class extends TypedEventEmitter {
+  providerType = "mqtt";
+  mqtt;
+  myUserId;
+  _isConnected = false;
+  constructor(brokerUrl = DEFAULT_MQTT_BROKER) {
+    super();
+    this.myUserId = "mqtt_u_" + Math.random().toString(36).substring(2, 10);
+    this.mqtt = new MinimalMqttClient(brokerUrl, "mpg_" + this.myUserId);
+  }
+  get currentUserId() {
+    return this.myUserId;
+  }
+  get isConnected() {
+    return this._isConnected;
+  }
+  async connect() {
+    await this.mqtt.connect();
+    this._isConnected = true;
+    this.emit("connected", void 0);
+  }
+  async disconnect() {
+    this.mqtt.close();
+    this._isConnected = false;
+    this.emit("disconnected", void 0);
+  }
+  async listLobbies(gameId) {
+    return new Promise((resolve) => {
+      const discoveryTopic = `mpg/${gameId}/lobbies/+`;
+      this.mqtt.subscribe(discoveryTopic);
+      const lobbiesMap = /* @__PURE__ */ new Map();
+      const unsubscribe = this.mqtt.onMessage((topic, payload) => {
+        if (!topicMatches(discoveryTopic, topic)) return;
+        try {
+          const info = JSON.parse(payload);
+          lobbiesMap.set(info.roomId, { info, receivedAt: Date.now() });
+        } catch {
+        }
+      });
+      setTimeout(() => {
+        unsubscribe();
+        resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
+      }, 1200);
+    });
+  }
+  async createLobby(options) {
+    const roomId = "mqtt_r_" + Math.random().toString(36).substring(2, 10);
+    const session = new MqttLobbySession(this.mqtt, this.myUserId, {
+      roomId,
+      isHost: true,
+      gameId: options.gameId || "game",
+      hostUserId: this.myUserId,
+      maxPlayers: options.maxPlayers ?? 4,
+      metadata: { name: options.name, ...options.metadata },
+      nickname: options.nickname || "Host"
+    });
+    return session;
+  }
+  async joinLobby(roomId, nickname) {
+    const session = new MqttLobbySession(this.mqtt, this.myUserId, {
+      roomId,
+      isHost: false,
+      gameId: "game",
+      hostUserId: "",
+      nickname: nickname || "Gracz"
+    });
+    return session;
+  }
+};
+
+// src/providers/firebase/FirebaseProvider.ts
+var FirebaseLobbySession = class extends TypedEventEmitter {
+  constructor(databaseURL, myUserId, options) {
+    super();
+    this.databaseURL = databaseURL;
+    this.myUserId = myUserId;
+    this.roomId = options.roomId;
+    this.isHost = options.isHost;
+    this.gameId = options.gameId;
+    this.hostUserId = options.hostUserId;
+    this._hostPeerId = options.hostPeerId;
+    this.maxPlayers = options.maxPlayers ?? 4;
+    this.metadata = options.metadata || {};
+    this._players.set(myUserId, {
+      userId: myUserId,
+      nickname: options.nickname,
+      isHost: options.isHost,
+      isReady: options.isHost,
+      peerId: options.hostPeerId
+    });
+    this.initNetwork();
+  }
+  databaseURL;
+  myUserId;
+  roomId;
+  isHost;
+  gameId;
+  hostUserId;
+  maxPlayers;
+  metadata;
+  _status = "waiting";
+  _hostPeerId;
+  _players = /* @__PURE__ */ new Map();
+  _chatMessages = [];
+  eventSource = null;
+  heartbeatTimer = null;
+  get players() {
+    return Array.from(this._players.values());
+  }
+  get chatMessages() {
+    return [...this._chatMessages];
+  }
+  get status() {
+    return this._status;
+  }
+  get hostPeerId() {
+    return this._hostPeerId;
+  }
+  cleanDbUrl() {
+    return this.databaseURL.replace(/\/+$/, "");
+  }
+  initNetwork() {
+    const eventsUrl = `${this.cleanDbUrl()}/games/${this.gameId}/rooms/${this.roomId}/events.json`;
+    if (typeof EventSource !== "undefined") {
+      try {
+        this.eventSource = new EventSource(eventsUrl);
+        this.eventSource.addEventListener("put", (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.data) {
+              this.handleRawData(data.data);
+            }
+          } catch {
+          }
+        });
+      } catch {
+      }
+    }
+    if (this.isHost) {
+      this.syncLobbyState();
+      this.heartbeatTimer = setInterval(() => this.syncLobbyState(), 6e3);
+    } else {
+      const self = this._players.get(this.myUserId);
+      if (self) {
+        this.pushEvent({ type: "player_update", player: self });
+      }
+    }
+  }
+  async pushEvent(eventData) {
+    const url = `${this.cleanDbUrl()}/games/${this.gameId}/rooms/${this.roomId}/events.json`;
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(eventData)
+      });
+    } catch {
+    }
+  }
+  async syncLobbyState() {
+    const lobbyUrl = `${this.cleanDbUrl()}/games/${this.gameId}/lobbies/${this.roomId}.json`;
+    const info = {
+      roomId: this.roomId,
+      name: this.metadata.name || "Firebase Lobby",
+      gameId: this.gameId,
+      hostNickname: this._players.get(this.hostUserId)?.nickname || "Host",
+      numPlayers: this._players.size,
+      maxPlayers: this.maxPlayers,
+      status: this._status,
+      metadata: { ...this.metadata, hostPeerId: this._hostPeerId }
+    };
+    try {
+      await fetch(lobbyUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(info)
+      });
+    } catch {
+    }
+  }
+  handleRawData(data) {
+    if (!data) return;
+    const items = typeof data === "object" ? Object.values(data) : [];
+    for (const msg of items) {
+      if (!msg || typeof msg !== "object") continue;
+      if (msg.type === "player_update" && msg.player) {
+        const p = msg.player;
+        const isNew = !this._players.has(p.userId);
+        this._players.set(p.userId, p);
+        if (p.isHost && p.peerId && p.peerId !== this._hostPeerId) {
+          this._hostPeerId = p.peerId;
+          this.emit("hostPeerIdAvailable", p.peerId);
+        }
+        if (isNew) {
+          this.emit("playerJoined", p);
+        } else {
+          this.emit("playerUpdated", p);
+        }
+      } else if (msg.type === "chat" && msg.message) {
+        const chatMsg = msg.message;
+        if (!this._chatMessages.some((m) => m.id === chatMsg.id)) {
+          this._chatMessages.push(chatMsg);
+          this.emit("chatMessage", chatMsg);
+        }
+      } else if (msg.type === "start_game") {
+        this._status = "in_game";
+        if (msg.hostPeerId) this._hostPeerId = msg.hostPeerId;
+        this.emit("gameStarted", {
+          hostPeerId: msg.hostPeerId || this._hostPeerId,
+          metadata: msg.metadata || {}
+        });
+      }
+    }
+  }
+  async setReady(ready, data) {
+    const self = this._players.get(this.myUserId);
+    if (!self) return;
+    self.isReady = ready;
+    if (data) self.data = { ...self.data, ...data };
+    await this.pushEvent({ type: "player_update", player: self });
+    this.emit("playerUpdated", self);
+  }
+  async setPeerId(peerId) {
+    const self = this._players.get(this.myUserId);
+    if (!self) return;
+    self.peerId = peerId;
+    if (this.isHost) {
+      this._hostPeerId = peerId;
+      this.emit("hostPeerIdAvailable", peerId);
+      this.syncLobbyState();
+    }
+    await this.pushEvent({ type: "player_update", player: self });
+  }
+  async sendChatMessage(text) {
+    const self = this._players.get(this.myUserId);
+    const chatMsg = {
+      id: Math.random().toString(36).substring(2, 10),
+      senderUserId: this.myUserId,
+      senderNickname: self?.nickname || "Gracz",
+      text,
+      timestamp: Date.now()
+    };
+    await this.pushEvent({ type: "chat", message: chatMsg });
+  }
+  async startGame(metadata) {
+    if (!this.isHost) return;
+    this._status = "in_game";
+    this.syncLobbyState();
+    await this.pushEvent({
+      type: "start_game",
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    });
+    this.emit("gameStarted", {
+      hostPeerId: this._hostPeerId,
+      metadata: metadata || this.metadata
+    });
+  }
+  async leave() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.eventSource) {
+      try {
+        this.eventSource.close();
+      } catch {
+      }
+    }
+    if (this.isHost) {
+      const lobbyUrl = `${this.cleanDbUrl()}/games/${this.gameId}/lobbies/${this.roomId}.json`;
+      try {
+        await fetch(lobbyUrl, { method: "DELETE" });
+      } catch {
+      }
+    }
+  }
+};
+var FirebaseLobbyProvider = class extends TypedEventEmitter {
+  providerType = "firebase";
+  databaseURL;
+  myUserId;
+  _isConnected = false;
+  constructor(config) {
+    super();
+    if (typeof config === "string") {
+      this.databaseURL = config;
+    } else if (config?.databaseURL) {
+      this.databaseURL = config.databaseURL;
+    } else {
+      this.databaseURL = "https://matrix-peer-game-default-rtdb.firebaseio.com";
+    }
+    this.myUserId = "fb_u_" + Math.random().toString(36).substring(2, 10);
+  }
+  get currentUserId() {
+    return this.myUserId;
+  }
+  get isConnected() {
+    return this._isConnected;
+  }
+  cleanDbUrl() {
+    return this.databaseURL.replace(/\/+$/, "");
+  }
+  async connect() {
+    this._isConnected = true;
+    this.emit("connected", void 0);
+  }
+  async disconnect() {
+    this._isConnected = false;
+    this.emit("disconnected", void 0);
+  }
+  async listLobbies(gameId) {
+    const url = `${this.cleanDbUrl()}/games/${gameId}/lobbies.json`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!data || typeof data !== "object") return [];
+      return Object.values(data);
+    } catch {
+      return [];
+    }
+  }
+  async createLobby(options) {
+    const roomId = "fb_r_" + Math.random().toString(36).substring(2, 10);
+    const session = new FirebaseLobbySession(this.databaseURL, this.myUserId, {
+      roomId,
+      isHost: true,
+      gameId: options.gameId || "game",
+      hostUserId: this.myUserId,
+      maxPlayers: options.maxPlayers ?? 4,
+      metadata: { name: options.name, ...options.metadata },
+      nickname: options.nickname || "Host"
+    });
+    return session;
+  }
+  async joinLobby(roomId, nickname) {
+    const session = new FirebaseLobbySession(this.databaseURL, this.myUserId, {
+      roomId,
+      isHost: false,
+      gameId: "game",
+      hostUserId: "",
+      nickname: nickname || "Gracz"
+    });
+    return session;
+  }
+};
+
 // src/core/GameNetClient.ts
 var GameNetClient = class extends TypedEventEmitter {
+  providerType;
+  lobbyProvider;
   matrix;
   gameId;
   peerConfig;
@@ -1680,9 +3109,35 @@ var GameNetClient = class extends TypedEventEmitter {
   constructor(options = {}) {
     super();
     this.gameId = options.gameId || "matrix-peer-game";
-    this.matrix = new MatrixClient(options.homeserver || "https://matrix.org");
+    this.providerType = options.provider || "matrix";
     this.peerConfig = options.peerConfig;
-    this.setupMatrixEvents();
+    if (this.providerType === "nostr") {
+      const p = new NostrLobbyProvider(options.nostrRelays);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || "https://matrix.org");
+      p.connect().catch(() => {
+      });
+    } else if (this.providerType === "mqtt") {
+      const p = new MqttLobbyProvider(options.mqttBroker);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || "https://matrix.org");
+      p.connect().catch(() => {
+      });
+    } else if (this.providerType === "firebase") {
+      const p = new FirebaseLobbyProvider(options.firebaseConfig);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || "https://matrix.org");
+      p.connect().catch(() => {
+      });
+    } else {
+      const p = new MatrixLobbyProvider(options.homeserver || "https://matrix.org");
+      this.lobbyProvider = p;
+      this.matrix = p.matrix;
+      this.setupMatrixEvents();
+    }
+    this.lobbyProvider.on("error", (err) => {
+      this.emit("error", err);
+    });
   }
   get lobby() {
     return this.currentLobby;
@@ -1697,7 +3152,7 @@ var GameNetClient = class extends TypedEventEmitter {
     return this.peerManager?.peerId ?? null;
   }
   get currentUserId() {
-    return this.matrix.currentUserId;
+    return this.lobbyProvider.currentUserId || this.matrix.currentUserId;
   }
   setupMatrixEvents() {
     this.matrix.on("error", (err) => {
@@ -1795,31 +3250,21 @@ var GameNetClient = class extends TypedEventEmitter {
   /**
    * List available public game lobbies for this game
    */
-  async listLobbies(limit = 20) {
-    return LobbyDiscovery.searchLobbies(this.matrix, {
-      gameId: this.gameId,
-      limit
-    });
+  async listLobbies(_limit = 20) {
+    return this.lobbyProvider.listLobbies(this.gameId);
   }
   /**
    * Create a new multiplayer game lobby
    */
   async createLobby(options) {
-    const createOpts = {
+    const lobby = await this.lobbyProvider.createLobby({
       name: options.name,
       topic: options.topic,
       gameId: this.gameId,
       maxPlayers: options.maxPlayers ?? 4,
       isPublic: options.isPublic ?? true,
-      metadata: options.metadata
-    };
-    const roomId = await this.matrix.createLobbyRoom(createOpts);
-    const lobby = new LobbyRoom(this.matrix, roomId, {
-      gameId: this.gameId,
-      hostUserId: this.matrix.currentUserId || "",
-      maxPlayers: createOpts.maxPlayers,
-      metadata: createOpts.metadata,
-      status: "waiting"
+      metadata: options.metadata,
+      nickname: options.nickname
     });
     this.currentLobby = lobby;
     this.initPeerNetwork(true);
@@ -1827,14 +3272,10 @@ var GameNetClient = class extends TypedEventEmitter {
     return lobby;
   }
   /**
-   * Join an existing lobby room by its Matrix room ID or alias
+   * Join an existing lobby room by its room ID
    */
-  async joinLobby(roomIdOrAlias) {
-    const roomId = await this.matrix.joinRoom(roomIdOrAlias);
-    const lobby = new LobbyRoom(this.matrix, roomId, {
-      gameId: this.gameId,
-      status: "waiting"
-    });
+  async joinLobby(roomIdOrAlias, nickname) {
+    const lobby = await this.lobbyProvider.joinLobby(roomIdOrAlias, nickname);
     this.currentLobby = lobby;
     this.initPeerNetwork(false);
     lobby.on("hostPeerIdAvailable", (hostPeerId) => {
@@ -1998,7 +3439,11 @@ var MatrixPeerGame = {
   RealtimeEngine,
   LockstepEngine,
   TurnBasedEngine,
-  SharedStateEngine
+  SharedStateEngine,
+  MatrixLobbyProvider,
+  NostrLobbyProvider,
+  MqttLobbyProvider,
+  FirebaseLobbyProvider
 };
 if (typeof window !== "undefined") {
   window.MatrixPeerGame = MatrixPeerGame;
@@ -2006,11 +3451,17 @@ if (typeof window !== "undefined") {
 var index_default = MatrixPeerGame;
 export {
   GameNetClient as Client,
+  DEFAULT_MQTT_BROKER,
+  DEFAULT_NOSTR_RELAYS,
+  FirebaseLobbyProvider,
   GameNetClient,
   LobbyDiscovery,
   LobbyRoom,
   LockstepEngine,
   MatrixClient,
+  MatrixLobbyProvider,
+  MqttLobbyProvider,
+  NostrLobbyProvider,
   PacketSerializer,
   PacketType,
   PeerManager,

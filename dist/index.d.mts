@@ -9,6 +9,92 @@ declare class TypedEventEmitter<Events extends Record<string, any>> {
     listenerCount(event: keyof Events): number;
 }
 
+type ProviderType = 'matrix' | 'nostr' | 'mqtt' | 'firebase' | 'direct';
+interface LobbyPlayer {
+    userId: string;
+    nickname: string;
+    isHost: boolean;
+    isReady: boolean;
+    peerId?: string;
+    data?: Record<string, any>;
+    customData?: Record<string, any>;
+}
+interface LobbyChatMessage {
+    id?: string;
+    senderUserId: string;
+    senderNickname: string;
+    text: string;
+    timestamp: number;
+}
+interface LobbyInfo {
+    roomId: string;
+    name: string;
+    topic?: string;
+    gameId: string;
+    hostNickname?: string;
+    hostUserId?: string;
+    hostPeerId?: string;
+    numPlayers?: number;
+    numMembers?: number;
+    maxPlayers: number;
+    status: 'waiting' | 'starting' | 'in_game';
+    metadata?: Record<string, any>;
+}
+interface CreateLobbyOptions {
+    name: string;
+    topic?: string;
+    gameId?: string;
+    maxPlayers?: number;
+    isPublic?: boolean;
+    metadata?: Record<string, any>;
+    nickname?: string;
+}
+interface LobbySessionEvents {
+    playerJoined: LobbyPlayer;
+    playerLeft: string;
+    playerUpdated: LobbyPlayer;
+    hostPeerIdAvailable: string;
+    gameStarted: {
+        hostPeerId?: string;
+        metadata: Record<string, any>;
+    };
+    lobbyUpdated: any;
+    chatMessage: LobbyChatMessage;
+    error: Error;
+}
+interface ILobbySession extends TypedEventEmitter<LobbySessionEvents> {
+    readonly roomId: string;
+    readonly isHost: boolean;
+    readonly players: LobbyPlayer[];
+    readonly chatMessages: LobbyChatMessage[];
+    readonly status: 'waiting' | 'starting' | 'in_game';
+    readonly hostPeerId?: string;
+    readonly hostUserId: string;
+    readonly gameId: string;
+    readonly maxPlayers: number;
+    readonly metadata: Record<string, any>;
+    setReady(ready: boolean, data?: Record<string, any>): Promise<void>;
+    setPeerId(peerId: string): Promise<void>;
+    sendChatMessage(text: string): Promise<void>;
+    startGame(metadata?: Record<string, any>): Promise<void>;
+    leave(): Promise<void>;
+}
+interface LobbyProviderEvents {
+    connected: void;
+    disconnected: void;
+    error: Error;
+}
+interface ILobbyProvider extends TypedEventEmitter<LobbyProviderEvents> {
+    readonly providerType: ProviderType;
+    readonly currentUserId: string | null;
+    readonly isConnected: boolean;
+    connect(authOptions?: any): Promise<void>;
+    disconnect(): Promise<void>;
+    listLobbies(gameId: string): Promise<LobbyInfo[]>;
+    createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
+    joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+}
+
 interface MatrixAuth {
     userId: string;
     accessToken: string;
@@ -63,14 +149,7 @@ interface MatrixSyncResponse {
         leave?: Record<string, any>;
     };
 }
-interface CreateLobbyOptions {
-    name: string;
-    topic?: string;
-    gameId: string;
-    maxPlayers?: number;
-    isPublic?: boolean;
-    metadata?: Record<string, any>;
-}
+
 interface LobbyStateEventContent {
     gameId: string;
     hostUserId: string;
@@ -84,32 +163,6 @@ interface PlayerStateEventContent {
     peerId?: string;
     isReady: boolean;
     customData?: Record<string, any>;
-}
-interface LobbyPlayer {
-    userId: string;
-    peerId?: string;
-    nickname: string;
-    isReady: boolean;
-    isHost: boolean;
-    customData?: Record<string, any>;
-}
-interface LobbyInfo {
-    roomId: string;
-    name: string;
-    topic?: string;
-    gameId: string;
-    hostUserId: string;
-    hostPeerId?: string;
-    numMembers: number;
-    maxPlayers: number;
-    status: 'waiting' | 'starting' | 'in_game';
-    metadata: Record<string, any>;
-}
-interface LobbyChatMessage {
-    senderUserId: string;
-    senderNickname: string;
-    text: string;
-    timestamp: number;
 }
 
 interface MatrixClientEvents {
@@ -211,73 +264,6 @@ declare class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
      * Internal processing of sync payloads to trigger fine-grained events
      */
     private processSyncResponse;
-}
-
-interface LobbyRoomEvents {
-    playerJoined: LobbyPlayer;
-    playerLeft: string;
-    playerUpdated: LobbyPlayer;
-    hostPeerIdAvailable: string;
-    gameStarted: {
-        hostPeerId?: string;
-        metadata: Record<string, any>;
-    };
-    lobbyUpdated: LobbyStateEventContent;
-    chatMessage: LobbyChatMessage;
-    error: Error;
-}
-declare class LobbyRoom extends TypedEventEmitter<LobbyRoomEvents> {
-    readonly roomId: string;
-    readonly matrix: MatrixClient;
-    private _hostUserId;
-    private _hostPeerId?;
-    private _gameId;
-    private _status;
-    private _maxPlayers;
-    private _metadata;
-    private _players;
-    private _chatMessages;
-    constructor(matrix: MatrixClient, roomId: string, initialState?: Partial<LobbyStateEventContent>);
-    get hostUserId(): string;
-    get hostPeerId(): string | undefined;
-    get isHost(): boolean;
-    get status(): 'waiting' | 'starting' | 'in_game';
-    get players(): LobbyPlayer[];
-    get gameId(): string;
-    get maxPlayers(): number;
-    get metadata(): Record<string, any>;
-    get chatMessages(): LobbyChatMessage[];
-    private setupMatrixListeners;
-    private updateLobbyState;
-    private updatePlayerState;
-    /**
-     * Set player readiness in the lobby
-     */
-    setReady(isReady: boolean, customData?: Record<string, any>): Promise<void>;
-    /**
-     * Set or update this player's PeerJS ID
-     */
-    setPeerId(peerId: string): Promise<void>;
-    /**
-     * Set host peer ID (only callable by host)
-     */
-    setHostPeerId(hostPeerId: string): Promise<void>;
-    /**
-     * Set custom player properties (e.g. skin, team, color)
-     */
-    setCustomData(data: Record<string, any>): Promise<void>;
-    /**
-     * Start the game (host only)
-     */
-    startGame(): Promise<void>;
-    /**
-     * Send a chat message into the lobby
-     */
-    sendChatMessage(text: string): Promise<void>;
-    /**
-     * Leave this lobby
-     */
-    leave(): Promise<void>;
 }
 
 type NetworkTopology = 'star' | 'mesh';
@@ -639,14 +625,39 @@ declare class SharedStateEngine extends TypedEventEmitter<SharedStateEvents> {
     destroy(): void;
 }
 
+interface FirebaseConfig {
+    databaseURL: string;
+    apiKey?: string;
+    projectId?: string;
+}
+declare class FirebaseLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> implements ILobbyProvider {
+    readonly providerType: "firebase";
+    private databaseURL;
+    private myUserId;
+    private _isConnected;
+    constructor(config?: FirebaseConfig | string);
+    get currentUserId(): string | null;
+    get isConnected(): boolean;
+    private cleanDbUrl;
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    listLobbies(gameId: string): Promise<LobbyInfo[]>;
+    createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
+    joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+}
+
 interface GameNetClientOptions {
+    provider?: ProviderType;
     homeserver?: string;
+    nostrRelays?: string[];
+    mqttBroker?: string;
+    firebaseConfig?: FirebaseConfig | string;
     gameId?: string;
     peerConfig?: any;
 }
 interface GameNetClientEvents {
     authenticated: MatrixAuth;
-    lobbyJoined: LobbyRoom;
+    lobbyJoined: ILobbySession;
     peerConnected: string;
     peerDisconnected: string;
     gameData: {
@@ -668,13 +679,15 @@ interface GameNetClientEvents {
     error: Error;
 }
 declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
+    readonly providerType: ProviderType;
+    readonly lobbyProvider: ILobbyProvider;
     readonly matrix: MatrixClient;
     readonly gameId: string;
     readonly peerConfig?: any;
     private currentLobby;
     private peerManager;
     constructor(options?: GameNetClientOptions);
-    get lobby(): LobbyRoom | null;
+    get lobby(): ILobbySession | null;
     get peer(): PeerManager | null;
     get isHost(): boolean;
     get myPeerId(): string | null;
@@ -715,7 +728,7 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
     /**
      * List available public game lobbies for this game
      */
-    listLobbies(limit?: number): Promise<LobbyInfo[]>;
+    listLobbies(_limit?: number): Promise<LobbyInfo[]>;
     /**
      * Create a new multiplayer game lobby
      */
@@ -725,11 +738,12 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
         maxPlayers?: number;
         isPublic?: boolean;
         metadata?: Record<string, any>;
-    }): Promise<LobbyRoom>;
+        nickname?: string;
+    }): Promise<ILobbySession>;
     /**
-     * Join an existing lobby room by its Matrix room ID or alias
+     * Join an existing lobby room by its room ID
      */
-    joinLobby(roomIdOrAlias: string): Promise<LobbyRoom>;
+    joinLobby(roomIdOrAlias: string, nickname?: string): Promise<ILobbySession>;
     private initPeerNetwork;
     /**
      * Broadcast arbitrary game data to all connected players via WebRTC
@@ -763,6 +777,73 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
      * Disconnect completely
      */
     destroy(): void;
+}
+
+interface LobbyRoomEvents {
+    playerJoined: LobbyPlayer;
+    playerLeft: string;
+    playerUpdated: LobbyPlayer;
+    hostPeerIdAvailable: string;
+    gameStarted: {
+        hostPeerId?: string;
+        metadata: Record<string, any>;
+    };
+    lobbyUpdated: LobbyStateEventContent;
+    chatMessage: LobbyChatMessage;
+    error: Error;
+}
+declare class LobbyRoom extends TypedEventEmitter<LobbyRoomEvents> {
+    readonly roomId: string;
+    readonly matrix: MatrixClient;
+    private _hostUserId;
+    private _hostPeerId?;
+    private _gameId;
+    private _status;
+    private _maxPlayers;
+    private _metadata;
+    private _players;
+    private _chatMessages;
+    constructor(matrix: MatrixClient, roomId: string, initialState?: Partial<LobbyStateEventContent>);
+    get hostUserId(): string;
+    get hostPeerId(): string | undefined;
+    get isHost(): boolean;
+    get status(): 'waiting' | 'starting' | 'in_game';
+    get players(): LobbyPlayer[];
+    get gameId(): string;
+    get maxPlayers(): number;
+    get metadata(): Record<string, any>;
+    get chatMessages(): LobbyChatMessage[];
+    private setupMatrixListeners;
+    private updateLobbyState;
+    private updatePlayerState;
+    /**
+     * Set player readiness in the lobby
+     */
+    setReady(isReady: boolean, customData?: Record<string, any>): Promise<void>;
+    /**
+     * Set or update this player's PeerJS ID
+     */
+    setPeerId(peerId: string): Promise<void>;
+    /**
+     * Set host peer ID (only callable by host)
+     */
+    setHostPeerId(hostPeerId: string): Promise<void>;
+    /**
+     * Set custom player properties (e.g. skin, team, color)
+     */
+    setCustomData(data: Record<string, any>): Promise<void>;
+    /**
+     * Start the game (host only)
+     */
+    startGame(): Promise<void>;
+    /**
+     * Send a chat message into the lobby
+     */
+    sendChatMessage(text: string): Promise<void>;
+    /**
+     * Leave this lobby
+     */
+    leave(): Promise<void>;
 }
 
 interface LobbySearchOptions {
@@ -825,6 +906,52 @@ declare class PacketSerializer {
     };
 }
 
+declare class MatrixLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> implements ILobbyProvider {
+    readonly providerType: "matrix";
+    readonly matrix: MatrixClient;
+    constructor(homeserver?: string);
+    get currentUserId(): string | null;
+    get isConnected(): boolean;
+    connect(authOptions?: any): Promise<void>;
+    disconnect(): Promise<void>;
+    listLobbies(gameId: string): Promise<LobbyInfo[]>;
+    createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
+    joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+}
+
+declare const DEFAULT_NOSTR_RELAYS: string[];
+declare class NostrLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> implements ILobbyProvider {
+    readonly providerType: "nostr";
+    private pool;
+    private keyPair;
+    private _isConnected;
+    constructor(relays?: string[]);
+    get currentUserId(): string | null;
+    get isConnected(): boolean;
+    private loadOrGenerateKeys;
+    connect(authOptions?: any): Promise<void>;
+    disconnect(): Promise<void>;
+    listLobbies(gameId: string): Promise<LobbyInfo[]>;
+    createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
+    joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+}
+
+declare const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
+declare class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> implements ILobbyProvider {
+    readonly providerType: "mqtt";
+    private mqtt;
+    private myUserId;
+    private _isConnected;
+    constructor(brokerUrl?: string);
+    get currentUserId(): string | null;
+    get isConnected(): boolean;
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    listLobbies(gameId: string): Promise<LobbyInfo[]>;
+    createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
+    joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+}
+
 declare const MatrixPeerGame: {
     Client: typeof GameNetClient;
     GameNetClient: typeof GameNetClient;
@@ -838,6 +965,10 @@ declare const MatrixPeerGame: {
     LockstepEngine: typeof LockstepEngine;
     TurnBasedEngine: typeof TurnBasedEngine;
     SharedStateEngine: typeof SharedStateEngine;
+    MatrixLobbyProvider: typeof MatrixLobbyProvider;
+    NostrLobbyProvider: typeof NostrLobbyProvider;
+    MqttLobbyProvider: typeof MqttLobbyProvider;
+    FirebaseLobbyProvider: typeof FirebaseLobbyProvider;
 };
 
-export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, type EntitySnapshot, type EventHandler, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, type NetworkPacket, type NetworkTopology, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerStateEventContent, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, MatrixPeerGame as default };
+export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, DEFAULT_MQTT_BROKER, DEFAULT_NOSTR_RELAYS, type EntitySnapshot, type EventHandler, FirebaseLobbyProvider, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type ILobbyProvider, type ILobbySession, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, type LobbyProviderEvents, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbySessionEvents, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, MatrixLobbyProvider, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, MqttLobbyProvider, type NetworkPacket, type NetworkTopology, NostrLobbyProvider, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerStateEventContent, type ProviderType, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, MatrixPeerGame as default };

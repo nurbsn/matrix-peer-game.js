@@ -60,14 +60,12 @@ export interface MatrixSyncResponse {
   };
 }
 
-export interface CreateLobbyOptions {
-  name: string;
-  topic?: string;
-  gameId: string;
-  maxPlayers?: number;
-  isPublic?: boolean;
-  metadata?: Record<string, any>;
-}
+export {
+  LobbyPlayer,
+  LobbyChatMessage,
+  LobbyInfo,
+  CreateLobbyOptions
+} from '../providers/types';
 
 export interface LobbyStateEventContent {
   gameId: string;
@@ -85,31 +83,3 @@ export interface PlayerStateEventContent {
   customData?: Record<string, any>;
 }
 
-export interface LobbyPlayer {
-  userId: string;
-  peerId?: string;
-  nickname: string;
-  isReady: boolean;
-  isHost: boolean;
-  customData?: Record<string, any>;
-}
-
-export interface LobbyInfo {
-  roomId: string;
-  name: string;
-  topic?: string;
-  gameId: string;
-  hostUserId: string;
-  hostPeerId?: string;
-  numMembers: number;
-  maxPlayers: number;
-  status: 'waiting' | 'starting' | 'in_game';
-  metadata: Record<string, any>;
-}
-
-export interface LobbyChatMessage {
-  senderUserId: string;
-  senderNickname: string;
-  text: string;
-  timestamp: number;
-}

@@ -1,8 +1,6 @@
 import { TypedEventEmitter } from './events';
 import { MatrixClient } from '../matrix/MatrixClient';
-import { MatrixAuth, LobbyInfo, CreateLobbyOptions } from '../matrix/types';
-import { LobbyRoom } from '../lobby/LobbyRoom';
-import { LobbyDiscovery } from '../lobby/LobbyDiscovery';
+import { MatrixAuth } from '../matrix/types';
 import { PeerManager } from '../peer/PeerManager';
 import { ChannelReliability, PeerManagerOptions } from '../peer/types';
 import { PacketSerializer } from '../peer/packet';
@@ -11,16 +9,30 @@ import { RealtimeEngine, RealtimeEngineOptions } from '../engines/RealtimeEngine
 import { LockstepEngine, LockstepEngineOptions } from '../engines/LockstepEngine';
 import { TurnBasedEngine, TurnBasedEngineOptions } from '../engines/TurnBasedEngine';
 import { SharedStateEngine, SharedStateOptions } from '../engines/SharedStateEngine';
+import {
+  ILobbyProvider,
+  ILobbySession,
+  ProviderType,
+  LobbyInfo as ProviderLobbyInfo
+} from '../providers/types';
+import { MatrixLobbyProvider } from '../providers/matrix/MatrixLobbyProvider';
+import { NostrLobbyProvider } from '../providers/nostr/NostrProvider';
+import { MqttLobbyProvider } from '../providers/mqtt/MqttProvider';
+import { FirebaseLobbyProvider, FirebaseConfig } from '../providers/firebase/FirebaseProvider';
 
 export interface GameNetClientOptions {
+  provider?: ProviderType;
   homeserver?: string;
+  nostrRelays?: string[];
+  mqttBroker?: string;
+  firebaseConfig?: FirebaseConfig | string;
   gameId?: string;
   peerConfig?: any;
 }
 
 export interface GameNetClientEvents {
   authenticated: MatrixAuth;
-  lobbyJoined: LobbyRoom;
+  lobbyJoined: ILobbySession;
   peerConnected: string;
   peerDisconnected: string;
   gameData: { senderPeerId: string; data: any; channel: ChannelReliability };
@@ -30,23 +42,49 @@ export interface GameNetClientEvents {
 }
 
 export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
+  readonly providerType: ProviderType;
+  readonly lobbyProvider: ILobbyProvider;
   readonly matrix: MatrixClient;
   readonly gameId: string;
   readonly peerConfig?: any;
 
-  private currentLobby: LobbyRoom | null = null;
+  private currentLobby: ILobbySession | null = null;
   private peerManager: PeerManager | null = null;
 
   constructor(options: GameNetClientOptions = {}) {
     super();
     this.gameId = options.gameId || 'matrix-peer-game';
-    this.matrix = new MatrixClient(options.homeserver || 'https://matrix.org');
+    this.providerType = options.provider || 'matrix';
     this.peerConfig = options.peerConfig;
 
-    this.setupMatrixEvents();
+    if (this.providerType === 'nostr') {
+      const p = new NostrLobbyProvider(options.nostrRelays);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || 'https://matrix.org');
+      p.connect().catch(() => {});
+    } else if (this.providerType === 'mqtt') {
+      const p = new MqttLobbyProvider(options.mqttBroker);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || 'https://matrix.org');
+      p.connect().catch(() => {});
+    } else if (this.providerType === 'firebase') {
+      const p = new FirebaseLobbyProvider(options.firebaseConfig);
+      this.lobbyProvider = p;
+      this.matrix = new MatrixClient(options.homeserver || 'https://matrix.org');
+      p.connect().catch(() => {});
+    } else {
+      const p = new MatrixLobbyProvider(options.homeserver || 'https://matrix.org');
+      this.lobbyProvider = p;
+      this.matrix = p.matrix;
+      this.setupMatrixEvents();
+    }
+
+    this.lobbyProvider.on('error', (err) => {
+      this.emit('error', err);
+    });
   }
 
-  get lobby(): LobbyRoom | null {
+  get lobby(): ILobbySession | null {
     return this.currentLobby;
   }
 
@@ -63,7 +101,7 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
   }
 
   get currentUserId(): string | null {
-    return this.matrix.currentUserId;
+    return this.lobbyProvider.currentUserId || this.matrix.currentUserId;
   }
 
   private setupMatrixEvents(): void {
@@ -168,11 +206,8 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
   /**
    * List available public game lobbies for this game
    */
-  async listLobbies(limit = 20): Promise<LobbyInfo[]> {
-    return LobbyDiscovery.searchLobbies(this.matrix, {
-      gameId: this.gameId,
-      limit
-    });
+  async listLobbies(_limit = 20): Promise<ProviderLobbyInfo[]> {
+    return this.lobbyProvider.listLobbies(this.gameId);
   }
 
   /**
@@ -184,23 +219,16 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
     maxPlayers?: number;
     isPublic?: boolean;
     metadata?: Record<string, any>;
-  }): Promise<LobbyRoom> {
-    const createOpts: CreateLobbyOptions = {
+    nickname?: string;
+  }): Promise<ILobbySession> {
+    const lobby = await this.lobbyProvider.createLobby({
       name: options.name,
       topic: options.topic,
       gameId: this.gameId,
       maxPlayers: options.maxPlayers ?? 4,
       isPublic: options.isPublic ?? true,
-      metadata: options.metadata
-    };
-
-    const roomId = await this.matrix.createLobbyRoom(createOpts);
-    const lobby = new LobbyRoom(this.matrix, roomId, {
-      gameId: this.gameId,
-      hostUserId: this.matrix.currentUserId || '',
-      maxPlayers: createOpts.maxPlayers,
-      metadata: createOpts.metadata,
-      status: 'waiting'
+      metadata: options.metadata,
+      nickname: options.nickname
     });
 
     this.currentLobby = lobby;
@@ -210,14 +238,10 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
   }
 
   /**
-   * Join an existing lobby room by its Matrix room ID or alias
+   * Join an existing lobby room by its room ID
    */
-  async joinLobby(roomIdOrAlias: string): Promise<LobbyRoom> {
-    const roomId = await this.matrix.joinRoom(roomIdOrAlias);
-    const lobby = new LobbyRoom(this.matrix, roomId, {
-      gameId: this.gameId,
-      status: 'waiting'
-    });
+  async joinLobby(roomIdOrAlias: string, nickname?: string): Promise<ILobbySession> {
+    const lobby = await this.lobbyProvider.joinLobby(roomIdOrAlias, nickname);
 
     this.currentLobby = lobby;
     this.initPeerNetwork(false);

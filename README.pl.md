@@ -75,6 +75,35 @@ Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołącz
 
 ---
 
+## 🌐 Wymienne Technologie Lobby (Multi-Provider)
+
+Biblioteka umożliwia wybór technologii matchmakingu, listy pokoi i czatu jedną linijką kodu:
+
+| Dostawca (`provider`) | Autoryzacja gracza | Wymagany własny serwer | Główne zalety |
+| :--- | :--- | :--- | :--- |
+| **`'nostr'`** | **Zero-Auth** (Klucz w 1 ms) | **0 serwerów** (otwarte przekaźniki Damus, Nos.lol) | Otwarta sieć, odporność na cenzurę, brak haseł |
+| **`'mqtt'`** | **Anonimowa** | **0 serwerów** (publiczne brokery HiveMQ, EMQX) | Błyskawiczny matchmaking oparty o wildcardy |
+| **`'firebase'`** | **Anonimowe UID** | Google Realtime Database | Samoczyszczące się pokoje (`onDisconnect`) |
+| **`'matrix'`** | Konto Matrix / Gość | matrix.org lub Conduit | Szyfrowanie, federacja i historia |
+
+```javascript
+// Wejście do gry przez otwarty protokół NOSTR (bez konieczności rejestracji!):
+const net = new MatrixPeerGame.Client({
+  provider: 'nostr', // 'nostr' | 'mqtt' | 'firebase' | 'matrix'
+  gameId: 'babo-shooter'
+});
+
+// Zwraca listę otwartych pokoi z publicznych przekaźników:
+const lobbies = await net.listLobbies();
+
+// Tworzenie pokoju:
+const lobby = await net.createLobby({ name: 'Babo Arena #1', maxPlayers: 6 });
+lobby.on('playerJoined', (player) => console.log('Nowy gracz:', player));
+lobby.on('chatMessage', (msg) => console.log(`${msg.senderNickname}: ${msg.text}`));
+```
+
+---
+
 ## 🕹️ Dedykowane Silniki pod Różne Typy Gier
 
 Biblioteka posiada 4 wbudowane silniki dopasowane do specyfiki różnych gatunków:
@@ -177,7 +206,7 @@ W katalogu `examples/` znajdują się gotowe przykłady działające od razu w p
    Gra turowa z zegarem odliczającym czas i blokadą ruchów nie w swojej turze.
 
 5. **`examples/05-complete-game-matrix-chat/index.html`**:
-   Kompletna gra zbierania kryształów (Cyber Gems) w 60 FPS przez WebRTC ze **zintegrowanym czatem na żywo opartym o protokół Matrix** działającym bezpośrednio podczas rozgrywki! Zawiera ułatwione logowanie, rejestrację, auto-login z `localStorage` oraz generowanie linków z zaproszeniem do pokoju (`?room=...` i `?p2proom=...`).
+   Kompletna strzelanka 2D w stylu **Babo Violent** (kulki w labiryncie, sterowanie WASD, celowanie i strzelanie myszką, odbijanie od ścian, paski HP, respawn i fragi) w 60 FPS przez WebRTC z **wyborem dowolnego dostawcy lobby (NOSTR, MQTT, Firebase, Matrix, Direct P2P)** oraz zintegrowanym czatem na żywo!
 
 ---
 
