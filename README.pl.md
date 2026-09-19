@@ -177,7 +177,37 @@ W katalogu `examples/` znajdują się gotowe przykłady działające od razu w p
    Gra turowa z zegarem odliczającym czas i blokadą ruchów nie w swojej turze.
 
 5. **`examples/05-complete-game-matrix-chat/index.html`**:
-   Kompletna gra zbierania kryształów (Cyber Gems) w 60 FPS przez WebRTC ze **zintegrowanym czatem na żywo opartym o protokół Matrix** działającym bezpośrednio podczas rozgrywki!
+   Kompletna gra zbierania kryształów (Cyber Gems) w 60 FPS przez WebRTC ze **zintegrowanym czatem na żywo opartym o protokół Matrix** działającym bezpośrednio podczas rozgrywki! Zawiera ułatwione logowanie, rejestrację, auto-login z `localStorage` oraz generowanie linków z zaproszeniem do pokoju (`?room=...` i `?p2proom=...`).
+
+---
+
+## 🔑 Ułatwione Logowanie i Rejestracja w Matrix
+
+Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 M_FORBIDDEN`) ze względów antyspamowych. MatrixPeerGame oferuje 4 sposoby na bezproblemowe dołączanie graczy:
+
+1. **Auto-Login z zapamiętaniem sesji:**
+   ```javascript
+   // Przy ponownym wejściu do gry gracz jest logowany automatycznie:
+   if (net.autoLogin('moja_gra_sesja')) {
+     console.log('Automatycznie zalogowano jako:', net.currentUserId);
+   } else {
+     // Pierwsze logowanie:
+     await net.loginWithPassword('login', 'haslo');
+     net.saveSession('moja_gra_sesja');
+   }
+   ```
+
+2. **Rejestracja nowego konta prosto z gry:**
+   ```javascript
+   const auth = await net.registerUser('nowy_gracz', 'tajne_haslo_123', 'SuperNick');
+   net.saveSession('moja_gra_sesja');
+   ```
+
+3. **Tryb Szybki P2P (Bez rejestracji i bez Matrixa):**
+   Możliwość natychmiastowej gry P2P przez PeerJS z generowaniem bezpośredniego linku z zaproszeniem (np. `index.html?p2proom=XYZ`).
+
+4. **Własny ultra-lekki serwer Matrix – Conduit (< 30 MB RAM):**
+   W katalogu [`deploy/conduit/`](deploy/conduit/README.md) znajduje się gotowy `docker-compose.yml` uruchamiający Conduit z włączonymi kontami gości (`allow_guests = true`). Pozwala graczom na anonimowe logowanie w 100 ms (`net.loginAsGuest('Nick')`) bez captchy i podawania maila.
 
 ---
 

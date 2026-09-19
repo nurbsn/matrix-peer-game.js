@@ -181,7 +181,36 @@ The `examples/` directory contains runnable, zero-dependency HTML files:
 | **02. FPS Binary Vector3** | `examples/02-realtime-fps-arena/index.html` | High-frequency 18-byte binary Vector3 serialization benchmarks and raw buffer inspection. |
 | **03. RTS Deterministic Lockstep** | `examples/03-rts-lockstep/index.html` | Tactical unit squad movement using synchronized frame lockstep and order queueing. |
 | **04. Turn-Based Board Game** | `examples/04-turn-based/index.html` | Turn-based Tic-Tac-Toe / board game with turn timers and action history. |
-| **05. In-Game Matrix Chat (Cyber Gems)** | `examples/05-complete-game-matrix-chat/index.html` | Playable 2D gem collector with 60 FPS P2P WebRTC movement and live in-game Matrix chat sidebar! |
+| **05. In-Game Matrix Chat (Cyber Gems)** | `examples/05-complete-game-matrix-chat/index.html` | Playable 2D gem collector with 60 FPS P2P WebRTC movement, live in-game Matrix chat, auto-login persistence, and shareable room links (`?room=` / `?p2proom=`). |
+
+---
+
+## 🔑 Simplified Matrix Onboarding & Authentication
+
+Because public matrix servers like `matrix.org` have disabled open guest registration (`403 M_FORBIDDEN`) to mitigate spam, MatrixPeerGame provides 4 seamless ways to onboard players:
+
+1. **Persistent Auto-Login (`localStorage`):**
+   ```javascript
+   // Automatically restore previous session so players only log in once:
+   if (net.autoLogin('my_game_auth')) {
+     console.log('Restored session as:', net.currentUserId);
+   } else {
+     await net.loginWithPassword('username', 'password');
+     net.saveSession('my_game_auth');
+   }
+   ```
+
+2. **In-Game User Registration:**
+   ```javascript
+   const auth = await net.registerUser('new_player', 'secret_pwd_123', 'MyNickname');
+   net.saveSession('my_game_auth');
+   ```
+
+3. **Direct P2P Link Sharing (Zero-Auth Fallback):**
+   Players can start a match instantly via PeerJS without any Matrix account and share a direct join link (e.g. `index.html?p2proom=ABC123XYZ`).
+
+4. **Self-Host Ultra-Lightweight Conduit Matrix Server (< 30 MB RAM):**
+   The [`deploy/conduit/`](deploy/conduit/README.md) directory includes a 1-minute `docker-compose.yml` for Conduit with guest registration enabled (`allow_guests = true`). Players can join with 100 ms anonymous guest logins (`net.loginAsGuest('Player1')`) without email, password, or captcha.
 
 ---
 

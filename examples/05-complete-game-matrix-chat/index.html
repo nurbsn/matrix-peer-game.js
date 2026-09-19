@@ -94,8 +94,9 @@
     <!-- Zakładki logowania -->
     <div class="tabs-nav">
       <button class="tab-btn active" data-tab="tab-matrix-password">🔑 Konto Matrix (Hasło)</button>
+      <button class="tab-btn" data-tab="tab-matrix-register">📝 Nowe Konto Matrix</button>
       <button class="tab-btn" data-tab="tab-matrix-token">🎫 Token Dostępu</button>
-      <button class="tab-btn" data-tab="tab-direct-p2p">⚡ Szybka Gra P2P (Bez Matrixa)</button>
+      <button class="tab-btn" data-tab="tab-direct-p2p">⚡ Szybka Gra P2P (Bez Konta)</button>
       <button class="tab-btn" data-tab="tab-matrix-guest">👤 Gość (Guest)</button>
     </div>
 
@@ -121,7 +122,33 @@
         </div>
       </div>
       <div class="hint-box">
-        💡 <b>Wskazówka:</b> matrix.org zablokował rejestrację anonimowych gości ze względów antyspamowych. Jeśli nie masz konta, możesz zarejestrować je bezpłatnie na <a href="https://app.element.io/#/register" target="_blank">app.element.io</a> lub przejść do zakładki <b>„Szybka Gra P2P”</b> i grać od razu bez logowania!
+        💡 <b>Wskazówka:</b> matrix.org zablokował rejestrację anonimowych gości ze względów antyspamowych. Zaloguj się swoim kontem, przejdź do zakładki <b>„Nowe Konto Matrix”</b>, lub wybierz <b>„Szybka Gra P2P”</b> i graj natychmiast bez logowania!
+      </div>
+    </div>
+
+    <!-- TAB 1B: REJESTRACJA NOWEGO KONTA MATRIX -->
+    <div id="tab-matrix-register" class="tab-content">
+      <div class="row">
+        <div class="col">
+          <label>Wybierz Nowy Login (tylko małe litery i cyfry)</label>
+          <input type="text" id="reg-username" placeholder="np. gracz_super">
+        </div>
+        <div class="col">
+          <label>Wybierz Hasło</label>
+          <input type="password" id="reg-password" placeholder="••••••••">
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label>Serwer Matrix (z otwartą rejestracją bez captcha)</label>
+          <input type="text" id="reg-homeserver" value="https://matrix.org">
+        </div>
+        <div class="col" style="display: flex; align-items: flex-end;">
+          <button id="btn-register-account">Zarejestruj Nowe Konto</button>
+        </div>
+      </div>
+      <div class="hint-box">
+        ℹ️ Jeśli serwer wymaga weryfikacji e-mail lub captcha (jak oficjalny <code>matrix.org</code>), możesz założyć darmowe konto na <a href="https://app.element.io/#/register" target="_blank">app.element.io</a> i zalogować się nim w zakładce <b>Konto Matrix</b>.
       </div>
     </div>
 
@@ -188,7 +215,10 @@
   <div id="browser-card" class="card hidden">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <h3>2. Lobby i Matchmaking Matrix</h3>
-      <span id="user-badge" class="badge green">Połączono</span>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span id="user-badge" class="badge green">Połączono</span>
+        <button id="btn-logout" class="secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;">Wyloguj</button>
+      </div>
     </div>
     
     <div class="row">
@@ -221,7 +251,10 @@
         <h3 id="lobby-title">Poczekalnia</h3>
         <p id="lobby-id-label" style="font-size: 0.8rem; color: var(--text-dim); margin-top: 2px;"></p>
       </div>
-      <span id="role-badge" class="badge amber">Gracz</span>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btn-copy-room-link" class="secondary" style="width: auto; padding: 6px 12px; font-size: 0.8rem;">🔗 Kopiuj Link do Pokoju</button>
+        <span id="role-badge" class="badge amber">Gracz</span>
+      </div>
     </div>
 
     <h4>Gracze w pokoju:</h4>
@@ -291,6 +324,7 @@
   let realtimeEngine = null;
   let isReady = false;
   let isDirectP2PMode = false;
+  let currentDirectHostCode = null;
 
   const remotePlayers = new Map();
   let gems = [];
@@ -327,11 +361,38 @@
       myPlayer.nickname = user.split(':')[0].replace('@', '');
 
       await client.loginWithPassword(user, pass);
+      client.saveSession('cyber_gems_auth');
       enterBrowserCard(client.currentUserId);
     } catch (err) {
       alert('Błąd logowania Matrix: ' + err.message);
       btn.disabled = false;
       btn.textContent = 'Zaloguj do Sieci Matrix';
+    }
+  });
+
+  // --- REJESTRACJA NOWEGO KONTA MATRIX ---
+  document.getElementById('btn-register-account').addEventListener('click', async () => {
+    const user = document.getElementById('reg-username').value.trim();
+    const pass = document.getElementById('reg-password').value;
+    const homeserver = document.getElementById('reg-homeserver').value.trim();
+    const btn = document.getElementById('btn-register-account');
+
+    if (!user || !pass) return alert('Wpisz nazwę użytkownika i hasło do rejestracji!');
+    btn.disabled = true;
+    btn.textContent = 'Rejestracja w toku...';
+
+    try {
+      const ClientConstructor = getClientConstructor();
+      client = new ClientConstructor({ homeserver, gameId: 'cyber-gems-2d' });
+      myPlayer.nickname = user;
+
+      const auth = await client.registerUser(user, pass, user);
+      client.saveSession('cyber_gems_auth');
+      enterBrowserCard(auth.userId);
+    } catch (err) {
+      alert('Błąd rejestracji: ' + err.message + '\n\nJeśli serwer matrix.org blokuje automatyczną rejestrację, załóż darmowe konto na app.element.io i zaloguj się nim.');
+      btn.disabled = false;
+      btn.textContent = 'Zarejestruj Nowe Konto';
     }
   });
 
@@ -350,6 +411,7 @@
       client = new ClientConstructor({ homeserver, gameId: 'cyber-gems-2d' });
 
       const auth = await client.loginWithToken(token);
+      client.saveSession('cyber_gems_auth');
       myPlayer.nickname = auth.userId.split(':')[0].replace('@', '');
       enterBrowserCard(auth.userId);
     } catch (err) {
@@ -392,6 +454,7 @@
     directPeerManager = new PeerManager({ isHost: true });
 
     directPeerManager.on('ready', (peerId) => {
+      currentDirectHostCode = peerId;
       document.getElementById('auth-card').classList.add('hidden');
       document.getElementById('lobby-card').classList.remove('hidden');
       document.getElementById('lobby-title').textContent = 'Pokój Direct P2P';
@@ -418,6 +481,7 @@
 
     myPlayer.nickname = nick;
     isDirectP2PMode = true;
+    currentDirectHostCode = code;
 
     const { PeerManager } = MatrixPeerGame;
     directPeerManager = new PeerManager({ isHost: false });
@@ -801,6 +865,86 @@
 
     requestAnimationFrame(loop);
   }
+
+  // --- WYLOGOWANIE ---
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    if (client) {
+      client.clearSession('cyber_gems_auth');
+    } else {
+      localStorage.removeItem('cyber_gems_auth');
+    }
+    window.location.href = window.location.origin + window.location.pathname;
+  });
+
+  // --- KOPIOWANIE LINKU DO POKOJU ---
+  document.getElementById('btn-copy-room-link').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-copy-room-link');
+    try {
+      const url = new URL(window.location.href);
+      url.search = '';
+      if (isDirectP2PMode) {
+        const p2pCode = currentDirectHostCode || (directPeerManager && directPeerManager.peerId) || document.getElementById('p2p-join-code').value.trim();
+        if (p2pCode) url.searchParams.set('p2proom', p2pCode);
+      } else if (currentLobby) {
+        url.searchParams.set('room', currentLobby.roomId);
+      }
+
+      const shareUrl = url.toString();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        prompt('Skopiuj poniższy link i wyślij znajomemu:', shareUrl);
+      }
+
+      const originalText = btn.textContent;
+      btn.textContent = '✓ Skopiowano link!';
+      btn.style.color = '#22c55e';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.color = '';
+      }, 2500);
+    } catch (err) {
+      console.error('Błąd kopiowania linku:', err);
+    }
+  });
+
+  // --- AUTO-LOGIN & OBSŁUGA LINKÓW ZAPROSZEŃ ---
+  window.addEventListener('DOMContentLoaded', async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const p2pRoomParam = urlParams.get('p2proom');
+    const matrixRoomParam = urlParams.get('room');
+
+    // 1. Sprawdzenie zapisanego logowania w localStorage
+    const ClientConstructor = getClientConstructor();
+    if (ClientConstructor && !p2pRoomParam) {
+      try {
+        const dummyClient = new ClientConstructor({ homeserver: 'https://matrix.org', gameId: 'cyber-gems-2d' });
+        if (dummyClient.autoLogin('cyber_gems_auth')) {
+          client = dummyClient;
+          myPlayer.nickname = client.currentUserId.split(':')[0].replace('@', '');
+          enterBrowserCard(client.currentUserId);
+
+          if (matrixRoomParam) {
+            document.getElementById('join-room-id').value = matrixRoomParam;
+          }
+          return;
+        }
+      } catch (e) {
+        console.warn('Nie udało się przywrócić sesji:', e);
+      }
+    }
+
+    // 2. Jeśli link zawierał kod P2P, przełącz na zakładkę P2P i uzupełnij kod
+    if (p2pRoomParam) {
+      const p2pTabBtn = document.querySelector('[data-tab="tab-direct-p2p"]');
+      if (p2pTabBtn) p2pTabBtn.click();
+      const codeInput = document.getElementById('p2p-join-code');
+      if (codeInput) codeInput.value = p2pRoomParam;
+    } else if (matrixRoomParam) {
+      const joinInput = document.getElementById('join-room-id');
+      if (joinInput) joinInput.value = matrixRoomParam;
+    }
+  });
 </script>
 
 </body>

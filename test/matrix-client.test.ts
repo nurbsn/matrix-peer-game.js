@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MatrixClient } from '../src/matrix/MatrixClient';
+import { GameNetClient } from '../src/core/GameNetClient';
 
 describe('MatrixClient', () => {
   let client: MatrixClient;
@@ -110,5 +111,45 @@ describe('MatrixClient', () => {
 
     expect(detectedChatMessage).not.toBeNull();
     expect(detectedChatMessage.text).toBe('GL & HF!');
+  });
+});
+
+describe('GameNetClient Session Management', () => {
+  beforeEach(() => {
+    const store: Record<string, string> = {};
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => store[key] ?? null),
+      setItem: vi.fn((key: string, val: string) => { store[key] = val; }),
+      removeItem: vi.fn((key: string) => { delete store[key]; }),
+      clear: vi.fn(() => { Object.keys(store).forEach(k => delete store[k]); })
+    });
+  });
+
+  it('should save, autoLogin and clear session correctly', () => {
+    const net = new GameNetClient({ homeserver: 'https://mock.server', gameId: 'test-game' });
+    
+    // Before auth
+    expect(net.saveSession('test_key')).toBe(false);
+    expect(net.autoLogin('test_key')).toBe(false);
+
+    // Simulate session
+    net.restoreSession({
+      userId: '@player1:mock.server',
+      accessToken: 'token_secret_123',
+      homeserver: 'https://mock.server'
+    });
+
+    expect(net.saveSession('test_key')).toBe(true);
+    expect(localStorage.getItem('test_key')).toContain('token_secret_123');
+
+    // Create a new client instance and autoLogin
+    const net2 = new GameNetClient({ homeserver: 'https://mock.server', gameId: 'test-game' });
+    const autoLoginResult = net2.autoLogin('test_key');
+    expect(autoLoginResult).toBe(true);
+    expect(net2.currentUserId).toBe('@player1:mock.server');
+
+    // Clear session
+    net2.clearSession('test_key');
+    expect(localStorage.getItem('test_key')).toBeNull();
   });
 });

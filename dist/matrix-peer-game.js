@@ -808,6 +808,43 @@ var MatrixPeerGame = (() => {
       return this.auth;
     }
     /**
+     * Register a new full user account with username and password
+     */
+    async registerUser(username, password, displayNickname) {
+      const registerBody = {
+        username,
+        password,
+        auth: {
+          type: "m.login.dummy"
+        }
+      };
+      let data;
+      try {
+        data = await this.request("/_matrix/client/v3/register", "POST", registerBody);
+      } catch (err) {
+        const session = err.data?.session;
+        if (err.status === 401 && session) {
+          registerBody.auth.session = session;
+          data = await this.request("/_matrix/client/v3/register", "POST", registerBody);
+        } else {
+          throw err;
+        }
+      }
+      this.auth = {
+        userId: data.user_id,
+        accessToken: data.access_token,
+        deviceId: data.device_id,
+        homeserver: this.homeserver
+      };
+      if (displayNickname) {
+        try {
+          await this.setDisplayName(displayNickname);
+        } catch {
+        }
+      }
+      return this.auth;
+    }
+    /**
      * Login with existing username/password
      */
     async loginWithPassword(username, password) {
@@ -6428,6 +6465,59 @@ var MatrixPeerGame = (() => {
       this.matrix.setAuth(auth);
       this.matrix.startSync();
       this.emit("authenticated", auth);
+    }
+    /**
+     * Register a new user account with username and password
+     */
+    async registerUser(username, password, nickname) {
+      const auth = await this.matrix.registerUser(username, password, nickname);
+      this.matrix.startSync();
+      this.emit("authenticated", auth);
+      return auth;
+    }
+    /**
+     * Save current authentication to localStorage
+     */
+    saveSession(key = "matrix_peer_game_auth") {
+      if (!this.matrix.currentAuth) return false;
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(key, JSON.stringify(this.matrix.currentAuth));
+          return true;
+        }
+      } catch {
+      }
+      return false;
+    }
+    /**
+     * Automatically restore session from localStorage if available
+     */
+    autoLogin(key = "matrix_peer_game_auth") {
+      try {
+        if (typeof localStorage !== "undefined") {
+          const stored = localStorage.getItem(key);
+          if (stored) {
+            const auth = JSON.parse(stored);
+            if (auth.accessToken && auth.userId) {
+              this.restoreSession(auth);
+              return true;
+            }
+          }
+        }
+      } catch {
+      }
+      return false;
+    }
+    /**
+     * Clear session from localStorage
+     */
+    clearSession(key = "matrix_peer_game_auth") {
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.removeItem(key);
+        }
+      } catch {
+      }
     }
     /**
      * List available public game lobbies for this game

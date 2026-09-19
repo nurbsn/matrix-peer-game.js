@@ -134,6 +134,48 @@ export class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
   }
 
   /**
+   * Register a new full user account with username and password
+   */
+  async registerUser(username: string, password: string, displayNickname?: string): Promise<MatrixAuth> {
+    const registerBody: any = {
+      username,
+      password,
+      auth: {
+        type: 'm.login.dummy'
+      }
+    };
+
+    let data: any;
+    try {
+      data = await this.request<any>('/_matrix/client/v3/register', 'POST', registerBody);
+    } catch (err: any) {
+      // If server returned 401 with a session token for UIA (User-Interactive Authentication)
+      const session = err.data?.session;
+      if (err.status === 401 && session) {
+        registerBody.auth.session = session;
+        data = await this.request<any>('/_matrix/client/v3/register', 'POST', registerBody);
+      } else {
+        throw err;
+      }
+    }
+
+    this.auth = {
+      userId: data.user_id,
+      accessToken: data.access_token,
+      deviceId: data.device_id,
+      homeserver: this.homeserver
+    };
+
+    if (displayNickname) {
+      try {
+        await this.setDisplayName(displayNickname);
+      } catch {}
+    }
+
+    return this.auth;
+  }
+
+  /**
    * Login with existing username/password
    */
   async loginWithPassword(username: string, password: string): Promise<MatrixAuth> {

@@ -1,0 +1,16 @@
+[global]
+server_name = "your-game-domain.org"
+port = 6167
+address = "0.0.0.0"
+
+# Storage
+database_backend = "rocksdb"
+database_path = "/var/lib/matrix-conduit/"
+
+# Maximizing accessibility for game players (Zero-Friction Gaming!)
+allow_registration = true
+allow_guests = true
+yes_i_am_very_sure_i_want_an_open_registration_server_prone_to_spam = true
+
+# Limit message size for games
+max_request_size = 20_000_000 # 20MB

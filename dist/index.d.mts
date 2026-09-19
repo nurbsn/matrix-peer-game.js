@@ -152,6 +152,10 @@ declare class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
      */
     registerGuest(displayNickname?: string): Promise<MatrixAuth>;
     /**
+     * Register a new full user account with username and password
+     */
+    registerUser(username: string, password: string, displayNickname?: string): Promise<MatrixAuth>;
+    /**
      * Login with existing username/password
      */
     loginWithPassword(username: string, password: string): Promise<MatrixAuth>;
@@ -692,6 +696,22 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
      * Restore existing session with token
      */
     restoreSession(auth: MatrixAuth): void;
+    /**
+     * Register a new user account with username and password
+     */
+    registerUser(username: string, password: string, nickname?: string): Promise<MatrixAuth>;
+    /**
+     * Save current authentication to localStorage
+     */
+    saveSession(key?: string): boolean;
+    /**
+     * Automatically restore session from localStorage if available
+     */
+    autoLogin(key?: string): boolean;
+    /**
+     * Clear session from localStorage
+     */
+    clearSession(key?: string): void;
     /**
      * List available public game lobbies for this game
      */

@@ -112,6 +112,60 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
   }
 
   /**
+   * Register a new user account with username and password
+   */
+  async registerUser(username: string, password: string, nickname?: string): Promise<MatrixAuth> {
+    const auth = await this.matrix.registerUser(username, password, nickname);
+    this.matrix.startSync();
+    this.emit('authenticated', auth);
+    return auth;
+  }
+
+  /**
+   * Save current authentication to localStorage
+   */
+  saveSession(key = 'matrix_peer_game_auth'): boolean {
+    if (!this.matrix.currentAuth) return false;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, JSON.stringify(this.matrix.currentAuth));
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  /**
+   * Automatically restore session from localStorage if available
+   */
+  autoLogin(key = 'matrix_peer_game_auth'): boolean {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          const auth = JSON.parse(stored);
+          if (auth.accessToken && auth.userId) {
+            this.restoreSession(auth);
+            return true;
+          }
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  /**
+   * Clear session from localStorage
+   */
+  clearSession(key = 'matrix_peer_game_auth'): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+    } catch {}
+  }
+
+  /**
    * List available public game lobbies for this game
    */
   async listLobbies(limit = 20): Promise<LobbyInfo[]> {

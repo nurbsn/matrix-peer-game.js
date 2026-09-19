@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  conduit:
+    image: matrixconduit/matrix-conduit:latest
+    container_name: game-matrix-lobby
+    restart: unless-stopped
+    volumes:
+      - ./conduit.toml:/etc/matrix-conduit/conduit.toml
+      - conduit-data:/var/lib/matrix-conduit
+    ports:
+      - "6167:6167"
+
+volumes:
+  conduit-data:
