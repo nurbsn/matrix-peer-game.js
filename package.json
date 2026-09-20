@@ -30,6 +30,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nurbsn/n-omni-peer.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nurbsn/n-omni-peer.js/issues"
+  },
+  "homepage": "https://github.com/nurbsn/n-omni-peer.js#readme",
   "dependencies": {
     "peerjs": "^1.5.4"
   },
