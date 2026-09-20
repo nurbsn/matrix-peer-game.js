@@ -1,62 +1,72 @@
-# 🎮 MatrixPeerGame
+# 🌐 nOmniPeer.js
 
-> **Serverless Multiplayer Game Networking Library**  
-> Twórz gry wieloosobowe w przeglądarce **bez kosztów i bez utrzymywania własnych dedykowanych serwerów gier!**  
-> Działa jako **płaskie JS (`<script src="...">`) bez Node.js** lub jako nowoczesna paczka TypeScript/ESM.
+> **Omni-Channel Serverless P2P Game Networking Library for WebRTC**  
+> Twórz gry wieloosobowe w przeglądarce **bez kosztów i bez konieczności stawiania własnych serwerów dedykowanych!**  
+> Działa jako **płaskie JS (`<script src="...">`) bez Node.js i bez bundlerów** lub jako nowoczesna paczka TypeScript/ESM.
 
 [English](README.md) | **Polski**
 
 ---
 
-## 🚀 Jak to działa?
+## 🚀 Czym jest nOmniPeer.js?
 
-Tradycyjne gry multiplayer wymagają drogich serwerów backendowych (Node.js, C#, Go), bazy danych i stałej konserwacji. **MatrixPeerGame** całkowicie to eliminuje dzięki połączeniu dwóch bezpłatnych technologii:
+Tradycyjne gry multiplayer wymagają drogich serwerów backendowych (Node.js, C#, Go), baz danych, matchmakerów i stałej konserwacji.
 
-1. **[Matrix Protocol](https://matrix.org)** (Zdecentralizowana warstwa lobby i sygnalizacji):
-   - Wyszukiwanie gier (`LobbyDiscovery`)
-   - Tworzenie i dołączanie do pokoi lobby
-   - Gotowość graczy (Ready check), nicki, avatary
-   - Czat w poczekalni
-   - Wymiana identyfikatorów WebRTC (sygnalizacja P2P)
-   - Działa z darmowymi kontami gości (`Guest Accounts`) na publicznych serwerach jak `matrix.org`
+**nOmniPeer.js** całkowicie eliminuje koszty i utrzymanie serwerów dzięki połączeniu wielokanałowej sygnalizacji (NOSTR, MQTT, Firebase, Matrix, Direct P2P) z bezpośrednimi kanałami WebRTC DataChannel (PeerJS) między przeglądarkami:
 
-2. **[PeerJS](https://peerjs.com)** (Warstwa bezpośredniej komunikacji w czasie rzeczywistym WebRTC):
-   - Bezpośrednie połączenia P2P przeglądarka-przeglądarka z opóźnieniami rzędu **10–30 ms**
-   - **Kanał Unreliable (UDP):** 60 FPS dla pozycji graczy, fizyki i pocisków
-   - **Kanał Reliable (TCP-like):** bezbłędne dostarczanie rozkazów, akcji i czatu
-   - Ciągły pomiar opóźnień (Ping/RTT)
+```
++---------------------------------------------------------------------------+
+|               Wielokanałowa Warstwa Lobby i Sygnalizacji                  |
+|   ⚡ NOSTR (Zero-Auth, Schnorr, Relaye)   📡 MQTT (Wildcardy, Otwarte)     |
+|   🔥 Firebase (Realtime DB, onDisconnect) 💬 Matrix (Pokoje, E2EE, Czat)   |
+|   🔗 Direct P2P (Brak infrastruktury, linki z zaproszeniem)               |
++---------------------------------------------------------------------------+
+                                      |
+                       (Bezpośredni Handshake WebRTC P2P)
+                                      v
++---------------------------------------------------------------------------+
+|                          PeerJS (Silnik WebRTC)                           |
+|  - Połączenia P2P przeglądarka-przeglądarka z opóźnieniem 10–30 ms        |
+|  - Kanał Unreliable (UDP): 60 FPS dla fizyki, pozycji i pocisków          |
+|  - Kanał Reliable (TCP-like): bezbłędne rozkazy, akcje i czat             |
++---------------------------------------------------------------------------+
+```
 
 ---
 
 ## 📦 Szybki Start: Użycie jako „Płaskie JS” (Zero Node.js!)
 
-Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołączyć plik `dist/matrix-peer-game.js` w swoim pliku HTML:
+Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołączyć plik `dist/nomnipeer.js` w swoim pliku HTML:
 
 ```html
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="UTF-8">
   <title>Moja Gra Multiplayer</title>
 </head>
 <body>
-  <!-- Dołączenie biblioteki ze wszystkimi zależnościami w jednym pliku -->
-  <script src="./dist/matrix-peer-game.js"></script>
+  <!-- Kompletna biblioteka ze wszystkimi zależnościami w jednym pliku -->
+  <script src="./dist/nomnipeer.js"></script>
 
   <script>
     async function init() {
-      // 1. Inicjalizacja klienta
-      const net = new MatrixPeerGame.Client({
-        homeserver: 'https://matrix.org',
+      // 1. Inicjalizacja klienta z wybranym dostawcą matchmakingu:
+      // Opcje: 'nostr' | 'mqtt' | 'firebase' | 'matrix'
+      const net = new nOmniPeer.Client({
+        provider: 'nostr', // Zero-auth, klucze generowane w 1 ms
         gameId: 'moja-gra-arena'
       });
 
-      // 2. Logowanie gościa (bez hasła)
-      await net.loginAsGuest('Player1');
+      // 2. Pobranie listy dostępnych pokoi:
+      const lobbies = await net.listLobbies();
+      console.log('Dostępne pokoje:', lobbies);
 
       // 3. Utworzenie pokoju lobby
       const room = await net.createLobby({ name: 'Arena Mistrzów', maxPlayers: 4 });
 
       room.on('playerJoined', (player) => console.log('Dołączył gracz:', player));
+      room.on('chatMessage', (msg) => console.log(`${msg.senderNickname}: ${msg.text}`));
       
       // 4. Gdy gra startuje -> automatyczne połączenie WebRTC P2P
       room.on('gameStarted', () => {
@@ -77,19 +87,19 @@ Nie potrzebujesz instalować Node.js, npm, Webpacka ani Vite. Wystarczy dołącz
 
 ## 🌐 Wymienne Technologie Lobby (Multi-Provider)
 
-Biblioteka umożliwia wybór technologii matchmakingu, listy pokoi i czatu jedną linijką kodu:
+Biblioteka umożliwia wybór technologii matchmakingu, listy pokoi i czatu jedną linijką konfiguracji:
 
 | Dostawca (`provider`) | Autoryzacja gracza | Wymagany własny serwer | Główne zalety |
 | :--- | :--- | :--- | :--- |
-| **`'nostr'`** | **Zero-Auth** (Klucz w 1 ms) | **0 serwerów** (otwarte przekaźniki Damus, Nos.lol) | Otwarta sieć, odporność na cenzurę, brak haseł |
+| **`'nostr'`** | **Zero-Auth** (Klucz w 1 ms) | **0 serwerów** (otwarte przekaźniki Damus, Nos.lol) | Otwarta sieć, odporność na cenzurę, czyste JS Schnorr |
 | **`'mqtt'`** | **Anonimowa** | **0 serwerów** (publiczne brokery HiveMQ, EMQX) | Błyskawiczny matchmaking oparty o wildcardy |
 | **`'firebase'`** | **Anonimowe UID** | Google Realtime Database | Samoczyszczące się pokoje (`onDisconnect`) |
 | **`'matrix'`** | Konto Matrix / Gość | matrix.org lub Conduit | Szyfrowanie, federacja i historia |
 
 ```javascript
-// Wejście do gry przez otwarty protokół NOSTR (bez konieczności rejestracji!):
-const net = new MatrixPeerGame.Client({
-  provider: 'nostr', // 'nostr' | 'mqtt' | 'firebase' | 'matrix'
+// Wejście do gry przez otwarty protokół NOSTR (bez rejestracji i bez haseł):
+const net = new nOmniPeer.Client({
+  provider: 'nostr',
   gameId: 'babo-shooter'
 });
 
@@ -106,13 +116,13 @@ lobby.on('chatMessage', (msg) => console.log(`${msg.senderNickname}: ${msg.text}
 
 ## 🕹️ Dedykowane Silniki pod Różne Typy Gier
 
-Biblioteka posiada 4 wbudowane silniki dopasowane do specyfiki różnych gatunków:
+nOmniPeer.js posiada 4 wbudowane silniki dopasowane do specyfiki różnych gatunków:
 
 ### 1. `RealtimeEngine` (Gry Akcji, FPS i Zręcznościówki 2D/3D)
 Działa na szybkim kanale UDP (`reliable: false`) z wbudowanym buforem i interpolacją pozycji (`lerp`) eliminującą szarpanie ekranu.
 
 **Wsparcie dla pakietów binarnych w grach FPS:**
-Zamiast ciężkiego JSON-a (75 bajtów), współrzędne gracza 3D `(x, y, z, rotY)` pakowane są do **zaledwie 18 bajtów**:
+Zamiast ciężkiego JSON-a (75+ bajtów), współrzędne gracza 3D `(x, y, z, rotY)` pakowane są do **zaledwie 18 bajtów**:
 ```javascript
 const engine = net.createRealtimeEngine({ tickRate: 60, interpolationDelayMs: 40 });
 
@@ -126,7 +136,7 @@ const smoothPos = engine.getInterpolatedPosition(enemyId);
 ---
 
 ### 2. `LockstepEngine` (Gry RTS i Bijatyki)
-W strategiach czasu rzeczywistego (jak StarCraft) nie przesyła się pozycji 500 czołgów. Wykorzystuje się **Deterministic Lockstep**, gdzie gracze przesyłają wyłącznie rozkazy gracza (kilkadziesiąt bajtów), a symulacja wykonuje się synchronicznie w określonych krokach czasowych (tickach):
+W strategiach czasu rzeczywistego (jak StarCraft) nie przesyła się pozycji setek jednostek. Wykorzystuje się **Deterministic Lockstep**, gdzie gracze przesyłają wyłącznie rozkazy gracza (kilkadziesiąt bajtów), a symulacja wykonuje się synchronicznie w określonych krokach czasowych (tickach):
 ```javascript
 const rts = net.createLockstepEngine({
   tickDurationMs: 100, // 10 kroków symulacji na sekundę
@@ -190,11 +200,7 @@ store.push('canvasStrokes', { x1: 10, y1: 20, x2: 30, y2: 40, color: '#ff0000' }
 W katalogu `examples/` znajdują się gotowe przykłady działające od razu w przeglądarce:
 
 1. **`examples/01-vanilla-flat-html/index.html`**:
-   Kompletna gra arena 2D w czystym HTML+JS:
-   - Logowanie do Matrixa jako gość
-   - Tworzenie i dołączanie do pokoi lobby
-   - Czat w poczekalni i wskaźnik gotowości
-   - Płynne poruszanie się postacią w 60 FPS przez WebRTC z pomiarem pingu
+   Kompletna gra arena 2D w czystym HTML+JS z logowaniem, poczekalnią, czatem i ruchem 60 FPS.
 
 2. **`examples/02-realtime-fps-arena/index.html`**:
    Wizualizacja i metryki oszczędności pasma dla pakietów binarnych 18-bajtowych w FPS.
@@ -212,15 +218,13 @@ W katalogu `examples/` znajdują się gotowe przykłady działające od razu w p
 
 ## 🔑 Ułatwione Logowanie i Rejestracja w Matrix
 
-Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 M_FORBIDDEN`) ze względów antyspamowych. MatrixPeerGame oferuje 4 sposoby na bezproblemowe dołączanie graczy:
+Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 M_FORBIDDEN`) ze względów antyspamowych. nOmniPeer.js oferuje 4 sposoby na bezproblemowe dołączanie graczy:
 
 1. **Auto-Login z zapamiętaniem sesji:**
    ```javascript
-   // Przy ponownym wejściu do gry gracz jest logowany automatycznie:
    if (net.autoLogin('moja_gra_sesja')) {
      console.log('Automatycznie zalogowano jako:', net.currentUserId);
    } else {
-     // Pierwsze logowanie:
      await net.loginWithPassword('login', 'haslo');
      net.saveSession('moja_gra_sesja');
    }
@@ -232,7 +236,7 @@ Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 
    net.saveSession('moja_gra_sesja');
    ```
 
-3. **Tryb Szybki P2P (Bez rejestracji i bez Matrixa):**
+3. **Tryb Szybki Direct P2P (Bez rejestracji i bez infrastruktury):**
    Możliwość natychmiastowej gry P2P przez PeerJS z generowaniem bezpośredniego linku z zaproszeniem (np. `index.html?p2proom=XYZ`).
 
 4. **Własny ultra-lekki serwer Matrix – Conduit (< 30 MB RAM):**
@@ -246,7 +250,7 @@ Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 
 # Instalacja zależności
 npm install
 
-# Uruchomienie testów jednostkowych (Vitest)
+# Uruchomienie testów jednostkowych (Vitest - 23 testy zaliczone)
 npm run test
 
 # Zbudowanie plików standalone oraz modułów ESM/CJS (Tsup)
@@ -254,8 +258,10 @@ npm run build
 ```
 
 Pliki wyjściowe w `dist/`:
-- `dist/matrix-peer-game.js` – wersja standalone (IIFE z wbudowanym PeerJS do tagu `<script>`)
-- `dist/matrix-peer-game.min.js` – wersja zminifikowana
+- `dist/nomnipeer.js` – wersja standalone (IIFE z wbudowanym PeerJS do tagu `<script>`, global `nOmniPeer`)
+- `dist/nomnipeer.min.js` – wersja zminifikowana (~143 KB)
+- `dist/matrix-peer-game.js` – wersja dla kompatybilności wstecznej (global `MatrixPeerGame`)
+- `dist/matrix-peer-game.min.js` – zminifikowana wersja kompatybilności wstecznej
 - `dist/index.mjs` – moduł ES
 - `dist/index.js` – CommonJS
 - `dist/index.d.ts` – typowania TypeScript

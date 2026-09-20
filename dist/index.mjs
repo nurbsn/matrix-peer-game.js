@@ -3427,7 +3427,7 @@ var GameNetClient = class extends TypedEventEmitter {
 };
 
 // src/index.ts
-var MatrixPeerGame = {
+var nOmniPeer = {
   Client: GameNetClient,
   GameNetClient,
   MatrixClient,
@@ -3445,10 +3445,12 @@ var MatrixPeerGame = {
   MqttLobbyProvider,
   FirebaseLobbyProvider
 };
+var MatrixPeerGame = nOmniPeer;
 if (typeof window !== "undefined") {
-  window.MatrixPeerGame = MatrixPeerGame;
+  window.nOmniPeer = nOmniPeer;
+  window.MatrixPeerGame = nOmniPeer;
 }
-var index_default = MatrixPeerGame;
+var index_default = nOmniPeer;
 export {
   GameNetClient as Client,
   DEFAULT_MQTT_BROKER,
@@ -3460,6 +3462,7 @@ export {
   LockstepEngine,
   MatrixClient,
   MatrixLobbyProvider,
+  MatrixPeerGame,
   MqttLobbyProvider,
   NostrLobbyProvider,
   PacketSerializer,
@@ -3469,6 +3472,7 @@ export {
   SharedStateEngine,
   TurnBasedEngine,
   TypedEventEmitter,
-  index_default as default
+  index_default as default,
+  nOmniPeer
 };
 //# sourceMappingURL=index.mjs.map

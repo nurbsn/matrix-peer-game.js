@@ -18,7 +18,7 @@ Serwer natychmiast nasłuchuje na porcie `6167`.
 
 Wystarczy w swojej grze podać adres serwera:
 ```javascript
-const net = new MatrixPeerGame.Client({
+const net = new nOmniPeer.Client({
   homeserver: 'https://twoj-serwer-conduit.org', // lub http://localhost:6167
   gameId: 'moja-gra'
 });

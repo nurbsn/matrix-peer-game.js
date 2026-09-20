@@ -1,5 +1,5 @@
 "use strict";
-var MatrixPeerGame = (() => {
+var nOmniPeer = (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -8188,4 +8188,4 @@ var MatrixPeerGame = (() => {
   var src_default = nOmniPeer;
   return __toCommonJS(src_exports);
 })();
-//# sourceMappingURL=matrix-peer-game.js.map
+//# sourceMappingURL=nomnipeer.js.map

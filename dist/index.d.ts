@@ -952,6 +952,24 @@ declare class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> i
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
 }
 
+declare const nOmniPeer: {
+    Client: typeof GameNetClient;
+    GameNetClient: typeof GameNetClient;
+    MatrixClient: typeof MatrixClient;
+    LobbyRoom: typeof LobbyRoom;
+    LobbyDiscovery: typeof LobbyDiscovery;
+    PeerManager: typeof PeerManager;
+    PacketSerializer: typeof PacketSerializer;
+    PacketType: typeof PacketType;
+    RealtimeEngine: typeof RealtimeEngine;
+    LockstepEngine: typeof LockstepEngine;
+    TurnBasedEngine: typeof TurnBasedEngine;
+    SharedStateEngine: typeof SharedStateEngine;
+    MatrixLobbyProvider: typeof MatrixLobbyProvider;
+    NostrLobbyProvider: typeof NostrLobbyProvider;
+    MqttLobbyProvider: typeof MqttLobbyProvider;
+    FirebaseLobbyProvider: typeof FirebaseLobbyProvider;
+};
 declare const MatrixPeerGame: {
     Client: typeof GameNetClient;
     GameNetClient: typeof GameNetClient;
@@ -971,4 +989,4 @@ declare const MatrixPeerGame: {
     FirebaseLobbyProvider: typeof FirebaseLobbyProvider;
 };
 
-export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, DEFAULT_MQTT_BROKER, DEFAULT_NOSTR_RELAYS, type EntitySnapshot, type EventHandler, FirebaseLobbyProvider, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type ILobbyProvider, type ILobbySession, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, type LobbyProviderEvents, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbySessionEvents, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, MatrixLobbyProvider, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, MqttLobbyProvider, type NetworkPacket, type NetworkTopology, NostrLobbyProvider, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerStateEventContent, type ProviderType, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, MatrixPeerGame as default };
+export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, DEFAULT_MQTT_BROKER, DEFAULT_NOSTR_RELAYS, type EntitySnapshot, type EventHandler, FirebaseLobbyProvider, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type ILobbyProvider, type ILobbySession, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, type LobbyProviderEvents, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbySessionEvents, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, MatrixLobbyProvider, MatrixPeerGame, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, MqttLobbyProvider, type NetworkPacket, type NetworkTopology, NostrLobbyProvider, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerStateEventContent, type ProviderType, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, nOmniPeer as default, nOmniPeer };

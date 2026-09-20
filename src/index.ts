@@ -83,7 +83,7 @@ import { MqttLobbyProvider } from './providers/mqtt/MqttProvider';
 import { FirebaseLobbyProvider } from './providers/firebase/FirebaseProvider';
 
 // Create bundle namespace for flat browser <script> usage
-const MatrixPeerGame = {
+const nOmniPeer = {
   Client: GameNetClient,
   GameNetClient,
   MatrixClient,
@@ -102,10 +102,15 @@ const MatrixPeerGame = {
   FirebaseLobbyProvider
 };
 
+// Backward compatibility alias
+const MatrixPeerGame = nOmniPeer;
+
 // Expose globally if running in a browser window
 if (typeof window !== 'undefined') {
-  (window as any).MatrixPeerGame = MatrixPeerGame;
+  (window as any).nOmniPeer = nOmniPeer;
+  (window as any).MatrixPeerGame = nOmniPeer;
 }
 
-export default MatrixPeerGame;
+export { nOmniPeer, MatrixPeerGame };
+export default nOmniPeer;
 

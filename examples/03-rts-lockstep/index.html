@@ -27,9 +27,9 @@
     <div id="log-box" class="log-box"></div>
   </div>
 
-  <script src="../../dist/matrix-peer-game.js"></script>
+  <script src="../../dist/nomnipeer.js"></script>
   <script>
-    const { LockstepEngine, TypedEventEmitter } = MatrixPeerGame;
+    const { LockstepEngine, TypedEventEmitter } = window.nOmniPeer || MatrixPeerGame;
 
     // Prosty mock peer managera dla demonstracji działania Lockstepu
     class DemoPeerManager extends TypedEventEmitter {

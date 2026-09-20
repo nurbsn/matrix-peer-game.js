@@ -30,6 +30,7 @@ __export(index_exports, {
   LockstepEngine: () => LockstepEngine,
   MatrixClient: () => MatrixClient,
   MatrixLobbyProvider: () => MatrixLobbyProvider,
+  MatrixPeerGame: () => MatrixPeerGame,
   MqttLobbyProvider: () => MqttLobbyProvider,
   NostrLobbyProvider: () => NostrLobbyProvider,
   PacketSerializer: () => PacketSerializer,
@@ -39,7 +40,8 @@ __export(index_exports, {
   SharedStateEngine: () => SharedStateEngine,
   TurnBasedEngine: () => TurnBasedEngine,
   TypedEventEmitter: () => TypedEventEmitter,
-  default: () => index_default
+  default: () => index_default,
+  nOmniPeer: () => nOmniPeer
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -3472,7 +3474,7 @@ var GameNetClient = class extends TypedEventEmitter {
 };
 
 // src/index.ts
-var MatrixPeerGame = {
+var nOmniPeer = {
   Client: GameNetClient,
   GameNetClient,
   MatrixClient,
@@ -3490,10 +3492,12 @@ var MatrixPeerGame = {
   MqttLobbyProvider,
   FirebaseLobbyProvider
 };
+var MatrixPeerGame = nOmniPeer;
 if (typeof window !== "undefined") {
-  window.MatrixPeerGame = MatrixPeerGame;
+  window.nOmniPeer = nOmniPeer;
+  window.MatrixPeerGame = nOmniPeer;
 }
-var index_default = MatrixPeerGame;
+var index_default = nOmniPeer;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   Client,
@@ -3506,6 +3510,7 @@ var index_default = MatrixPeerGame;
   LockstepEngine,
   MatrixClient,
   MatrixLobbyProvider,
+  MatrixPeerGame,
   MqttLobbyProvider,
   NostrLobbyProvider,
   PacketSerializer,
@@ -3514,6 +3519,7 @@ var index_default = MatrixPeerGame;
   RealtimeEngine,
   SharedStateEngine,
   TurnBasedEngine,
-  TypedEventEmitter
+  TypedEventEmitter,
+  nOmniPeer
 });
 //# sourceMappingURL=index.js.map

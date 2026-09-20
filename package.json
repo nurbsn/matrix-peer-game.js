@@ -1,20 +1,24 @@
 {
-  "name": "matrix-peer-game",
+  "name": "nomnipeer",
   "version": "1.0.0",
-  "description": "Serverless multiplayer game networking library using Matrix for lobbies/signaling and PeerJS for WebRTC real-time gameplay",
+  "description": "Omni-channel serverless P2P game networking library for WebRTC with NOSTR, MQTT, Firebase, Matrix, and Direct P2P matchmaking",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "unpkg": "dist/matrix-peer-game.js",
+  "unpkg": "dist/nomnipeer.js",
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "keywords": [
+    "nomnipeer",
     "multiplayer",
     "webrtc",
     "peerjs",
+    "nostr",
+    "mqtt",
+    "firebase",
     "matrix",
     "matrix-org",
     "gamedev",

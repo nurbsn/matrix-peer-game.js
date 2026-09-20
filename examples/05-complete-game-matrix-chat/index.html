@@ -307,8 +307,8 @@
   </div>
 </div>
 
-<!-- Standalone bundle MatrixPeerGame (płaskie JS bez Node.js!) -->
-<script src="../../dist/matrix-peer-game.js"></script>
+<!-- Standalone bundle nOmniPeer.js (płaskie JS bez Node.js!) -->
+<script src="../../dist/nomnipeer.js"></script>
 
 <script>
   // --- 1. STAN GRACZA I OBIEKTÓW GRY ---
@@ -348,6 +348,33 @@
   let particles = [];
   let lastShotTime = 0;
 
+  // --- CZAT DOM & HELPERY (Zadeklarowane na początku przed respawnem) ---
+  const chatInput = document.getElementById('in-game-chat-input');
+  const sendChatBtn = document.getElementById('btn-in-game-chat-send');
+  const chatFeed = document.getElementById('in-game-chat-feed');
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function appendChatMessage(sender, text, isSystem = false, isKill = false) {
+    const feed = chatFeed || document.getElementById('in-game-chat-feed');
+    if (!feed) return;
+    const div = document.createElement('div');
+    if (isKill) {
+      div.className = 'chat-msg chat-kill';
+      div.textContent = text;
+    } else if (isSystem) {
+      div.className = 'chat-msg chat-system';
+      div.textContent = `⭐ ${text}`;
+    } else {
+      div.className = 'chat-msg';
+      div.innerHTML = `<span class="chat-sender">${escapeHtml(sender)}:</span> ${escapeHtml(text)}`;
+    }
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
   // --- 2. LABIRYNT PRZESZKÓD BABO VIOLENT ---
   const MAZE_WALLS = [
     // Ściany zewnętrzne
@@ -386,7 +413,7 @@
     { x: 400, y: 410 }
   ];
 
-  function respawnMyPlayer() {
+  function respawnMyPlayer(isInit = false) {
     const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
     myPlayer.x = sp.x;
     myPlayer.y = sp.y;
@@ -394,12 +421,17 @@
     myPlayer.vy = 0;
     myPlayer.hp = 100;
     myPlayer.isDead = false;
-    document.getElementById('my-hp').textContent = myPlayer.hp + '%';
-    document.getElementById('my-hp').style.color = '#22c55e';
-    appendChatMessage('System', `Odrodziłeś się na punkcie respawnu!`, true);
+    const hpEl = document.getElementById('my-hp');
+    if (hpEl) {
+      hpEl.textContent = myPlayer.hp + '%';
+      hpEl.style.color = '#22c55e';
+    }
+    if (!isInit) {
+      appendChatMessage('System', `Odrodziłeś się na punkcie respawnu!`, true);
+    }
   }
 
-  respawnMyPlayer();
+  respawnMyPlayer(true);
 
   // --- 3. PRZEŁĄCZANIE ZAKŁADEK SIECI ---
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -412,8 +444,8 @@
   });
 
   const getClientConstructor = () => {
-    return (window.MatrixPeerGame && (window.MatrixPeerGame.Client || window.MatrixPeerGame.GameNetClient)) ||
-           (typeof MatrixPeerGame !== 'undefined' && (MatrixPeerGame.Client || MatrixPeerGame.GameNetClient));
+    const lib = window.nOmniPeer || window.MatrixPeerGame || (typeof nOmniPeer !== 'undefined' ? nOmniPeer : (typeof MatrixPeerGame !== 'undefined' ? MatrixPeerGame : null));
+    return lib && (lib.Client || lib.GameNetClient);
   };
 
   // --- 4. LOGOWANIE DO WYBRANEGO PROVIDERA ---
@@ -466,7 +498,7 @@
     isDirectP2PMode = true;
     activeProviderName = 'direct';
 
-    const { PeerManager } = MatrixPeerGame;
+    const { PeerManager } = window.nOmniPeer || window.MatrixPeerGame;
     directPeerManager = new PeerManager({ isHost: true });
 
     directPeerManager.on('ready', (peerId) => {
@@ -498,7 +530,7 @@
     currentDirectHostCode = code;
     activeProviderName = 'direct';
 
-    const { PeerManager } = MatrixPeerGame;
+    const { PeerManager } = window.nOmniPeer || window.MatrixPeerGame;
     directPeerManager = new PeerManager({ isHost: false });
 
     directPeerManager.on('ready', () => {
@@ -694,7 +726,7 @@
     document.getElementById('lobby-card').classList.add('hidden');
     document.getElementById('game-container').style.display = 'block';
 
-    const { RealtimeEngine } = MatrixPeerGame;
+    const { RealtimeEngine } = window.nOmniPeer || window.MatrixPeerGame;
     const activePeerManager = isDirectP2PMode ? directPeerManager : client.peer;
 
     if (isDirectP2PMode && directPeerManager && directPeerManager.isHost) {
@@ -1100,11 +1132,8 @@
   }
 
   // --- 8. CZAT WEWNĄTRZ GRY ---
-  const chatInput = document.getElementById('in-game-chat-input');
-  const sendChatBtn = document.getElementById('btn-in-game-chat-send');
-  const chatFeed = document.getElementById('in-game-chat-feed');
-
   async function sendCurrentChatMessage() {
+    if (!chatInput) return;
     const text = chatInput.value.trim();
     if (!text) return;
     chatInput.value = '';
@@ -1126,32 +1155,16 @@
     }
   }
 
-  sendChatBtn.addEventListener('click', sendCurrentChatMessage);
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      sendCurrentChatMessage();
-      chatInput.blur();
-    }
-  });
-
-  function appendChatMessage(sender, text, isSystem = false, isKill = false) {
-    const div = document.createElement('div');
-    if (isKill) {
-      div.className = 'chat-msg chat-kill';
-      div.textContent = text;
-    } else if (isSystem) {
-      div.className = 'chat-msg chat-system';
-      div.textContent = `⭐ ${text}`;
-    } else {
-      div.className = 'chat-msg';
-      div.innerHTML = `<span class="chat-sender">${escapeHtml(sender)}:</span> ${escapeHtml(text)}`;
-    }
-    chatFeed.appendChild(div);
-    chatFeed.scrollTop = chatFeed.scrollHeight;
+  if (sendChatBtn) {
+    sendChatBtn.addEventListener('click', sendCurrentChatMessage);
   }
-
-  function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (chatInput) {
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        sendCurrentChatMessage();
+        chatInput.blur();
+      }
+    });
   }
 
   // --- 9. WYLOGOWANIE & KOPIOWANIE LINKÓW ---
