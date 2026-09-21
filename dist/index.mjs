@@ -1748,7 +1748,7 @@ var MatrixLobbyProvider = class extends TypedEventEmitter {
 
 // src/providers/nostr/crypto.ts
 var P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
-var N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bb5bf5670f93448e2dn;
+var N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 var Gx = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
 var Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
 var G = { x: Gx, y: Gy };
@@ -1828,20 +1828,19 @@ async function sha256Hex(data) {
   const hash = await sha256Bytes(bytes);
   return bytesToHex(hash);
 }
-async function taggedHash(tag, ...msgs) {
+async function taggedHash(tag, msg) {
   const tagBytes = new TextEncoder().encode(tag);
   const tagHash = await sha256Bytes(tagBytes);
-  let totalLen = tagHash.length * 2;
-  for (const m of msgs) totalLen += m.length;
-  const concat = new Uint8Array(totalLen);
+  const concat = new Uint8Array(tagHash.length * 2 + msg.length);
   concat.set(tagHash, 0);
   concat.set(tagHash, tagHash.length);
-  let offset = tagHash.length * 2;
-  for (const m of msgs) {
-    concat.set(m, offset);
-    offset += m.length;
-  }
+  concat.set(msg, tagHash.length * 2);
   return sha256Bytes(concat);
+}
+function xorBytes(a, b) {
+  const out = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] ^ b[i];
+  return out;
 }
 function generateKeyPair() {
   const randBytes = new Uint8Array(32);
@@ -1861,27 +1860,40 @@ function generateKeyPair() {
     publicKey: toHex32(P2.x)
   };
 }
-async function schnorrSign(msgHashHex, secretKeyHex) {
-  let d = BigInt("0x" + secretKeyHex);
-  const P0 = pointMultiply(d, G);
-  if (P0.y % 2n !== 0n) {
-    d = N - d;
-  }
+async function schnorrSign(msgHashHex, secretKeyHex, auxRandHex) {
+  const d0 = BigInt("0x" + secretKeyHex);
+  if (d0 <= 0n || d0 >= N) throw new Error("Invalid secret key");
+  const P0 = pointMultiply(d0, G);
+  const d = P0.y % 2n === 0n ? d0 : N - d0;
+  const dBytes = hexToBytes(toHex32(d));
   const pxBytes = hexToBytes(toHex32(P0.x));
   const msgBytes = hexToBytes(msgHashHex);
-  const randAux = new Uint8Array(32);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(randAux);
+  let aBytes;
+  if (auxRandHex) {
+    aBytes = hexToBytes(auxRandHex);
+  } else {
+    aBytes = new Uint8Array(32);
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      crypto.getRandomValues(aBytes);
+    }
   }
-  const t = await taggedHash("BIP0340/nonce", hexToBytes(toHex32(d)), pxBytes, msgBytes, randAux);
-  let k = BigInt("0x" + bytesToHex(t)) % N;
-  if (k === 0n) k = 1n;
-  const R = pointMultiply(k, G);
-  if (R.y % 2n !== 0n) {
-    k = N - k;
-  }
+  const tAux = await taggedHash("BIP0340/aux", aBytes);
+  const t = xorBytes(dBytes, tAux);
+  const nonceInput = new Uint8Array(t.length + pxBytes.length + msgBytes.length);
+  nonceInput.set(t, 0);
+  nonceInput.set(pxBytes, t.length);
+  nonceInput.set(msgBytes, t.length + pxBytes.length);
+  const randHash = await taggedHash("BIP0340/nonce", nonceInput);
+  let k0 = BigInt("0x" + bytesToHex(randHash)) % N;
+  if (k0 === 0n) throw new Error("k0 is zero");
+  const R = pointMultiply(k0, G);
+  const k = R.y % 2n === 0n ? k0 : N - k0;
   const rxBytes = hexToBytes(toHex32(R.x));
-  const eHash = await taggedHash("BIP0340/challenge", rxBytes, pxBytes, msgBytes);
+  const challengeInput = new Uint8Array(rxBytes.length + pxBytes.length + msgBytes.length);
+  challengeInput.set(rxBytes, 0);
+  challengeInput.set(pxBytes, rxBytes.length);
+  challengeInput.set(msgBytes, rxBytes.length + pxBytes.length);
+  const eHash = await taggedHash("BIP0340/challenge", challengeInput);
   const e = BigInt("0x" + bytesToHex(eHash)) % N;
   const s = mod(k + e * d, N);
   return toHex32(R.x) + toHex32(s);
@@ -2014,9 +2026,9 @@ function syncSha256(data) {
 
 // src/providers/nostr/NostrProvider.ts
 var DEFAULT_NOSTR_RELAYS = [
-  "wss://relay.damus.io",
   "wss://nos.lol",
-  "wss://relay.snort.social"
+  "wss://relay.damus.io",
+  "wss://nostr.mom"
 ];
 var NostrRelayPool = class {
   constructor(relayUrls = DEFAULT_NOSTR_RELAYS) {
@@ -2028,10 +2040,23 @@ var NostrRelayPool = class {
   eoseListeners = /* @__PURE__ */ new Map();
   async connect() {
     if (typeof WebSocket === "undefined") return;
+    const connectPromises = [];
     for (const url of this.relayUrls) {
       if (this.sockets.has(url)) continue;
       try {
         const ws = new WebSocket(url);
+        const p = new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 2500);
+          ws.onopen = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          ws.onerror = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+        });
+        connectPromises.push(p);
         ws.onmessage = (msg) => {
           try {
             const data = JSON.parse(msg.data);
@@ -2052,6 +2077,12 @@ var NostrRelayPool = class {
         this.sockets.set(url, ws);
       } catch {
       }
+    }
+    if (connectPromises.length > 0) {
+      await Promise.race([
+        Promise.all(connectPromises),
+        new Promise((resolve) => setTimeout(resolve, 1500))
+      ]);
     }
   }
   onMessage(listener) {
@@ -2167,15 +2198,15 @@ var NostrLobbySession = class extends TypedEventEmitter {
       this.handleIncomingEvent(event);
     });
     this.pool.subscribe(this.subId, {
-      kinds: [20001, 20002, 20003],
+      kinds: [30078, 20001, 20002, 20003],
       "#d": [this.roomId],
-      since: Math.floor(Date.now() / 1e3) - 30
+      since: Math.floor(Date.now() / 1e3) - 300
     });
     if (this.isHost) {
       this.broadcastLobbyHeartbeat();
       this.heartbeatTimer = setInterval(() => {
         this.broadcastLobbyHeartbeat();
-      }, 8e3);
+      }, 7e3);
     } else {
       const self = this._players.get(this.keyPair.publicKey);
       if (self) {
@@ -2187,7 +2218,7 @@ var NostrLobbySession = class extends TypedEventEmitter {
     }
   }
   broadcastLobbyHeartbeat() {
-    this.publishEvent(20001, [["d", this.roomId], ["t", "mpg-lobby"], ["g", this.gameId]], {
+    this.publishEvent(30078, [["d", this.roomId], ["t", "mpg-lobby"], ["g", this.gameId]], {
       name: this.metadata.name || "Nostr Lobby",
       gameId: this.gameId,
       hostUserId: this.hostUserId,
@@ -2204,7 +2235,7 @@ var NostrLobbySession = class extends TypedEventEmitter {
     if (dTag !== this.roomId) return;
     try {
       const data = JSON.parse(event.content);
-      if (event.kind === 20001) {
+      if (event.kind === 30078 || event.kind === 20001) {
         if (data.status && data.status !== this._status) {
           this._status = data.status;
         }
@@ -2224,6 +2255,16 @@ var NostrLobbySession = class extends TypedEventEmitter {
           }
           if (isNew) {
             this.emit("playerJoined", p);
+            if (this.isHost) {
+              this.broadcastLobbyHeartbeat();
+              const hostSelf = this._players.get(this.keyPair.publicKey);
+              if (hostSelf) {
+                this.publishEvent(20002, [["d", this.roomId]], {
+                  type: "player_update",
+                  player: hostSelf
+                });
+              }
+            }
           } else {
             this.emit("playerUpdated", p);
           }
@@ -2296,6 +2337,16 @@ var NostrLobbySession = class extends TypedEventEmitter {
   }
   async leave() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.isHost) {
+      try {
+        await this.publishEvent(30078, [["d", this.roomId], ["t", "mpg-lobby"], ["g", this.gameId]], {
+          status: "closed",
+          numPlayers: 0,
+          gameId: this.gameId
+        });
+      } catch {
+      }
+    }
     if (this.unsubscribeMessages) this.unsubscribeMessages();
     this.pool.unsubscribe(this.subId);
   }
@@ -2350,16 +2401,21 @@ var NostrLobbyProvider = class extends TypedEventEmitter {
     this.emit("disconnected", void 0);
   }
   async listLobbies(gameId) {
+    await this.pool.connect();
     return new Promise((resolve) => {
       const subId = "list_" + Math.random().toString(36).substring(2, 9);
       const lobbiesMap = /* @__PURE__ */ new Map();
       const unsubscribe = this.pool.onMessage((event) => {
-        if (event.kind !== 20001) return;
+        if (event.kind !== 30078 && event.kind !== 20001) return;
         const dTag = event.tags.find((t) => t[0] === "d")?.[1];
         if (!dTag) return;
         try {
           const data = JSON.parse(event.content);
           if (data.gameId !== gameId) return;
+          if (data.status === "closed") {
+            lobbiesMap.delete(dTag);
+            return;
+          }
           const prev = lobbiesMap.get(dTag);
           if (!prev || event.created_at > prev.createdAt) {
             lobbiesMap.set(dTag, {
@@ -2379,27 +2435,30 @@ var NostrLobbyProvider = class extends TypedEventEmitter {
         } catch {
         }
       });
-      this.pool.subscribe(
-        subId,
-        {
-          kinds: [20001],
-          "#t": ["mpg-lobby"],
-          "#g": [gameId],
-          since: Math.floor(Date.now() / 1e3) - 45
-        },
-        () => {
-          finish();
-        }
-      );
-      const timeout = setTimeout(() => {
-        finish();
-      }, 1500);
+      let finishTimer = null;
       const finish = () => {
-        clearTimeout(timeout);
+        if (finishTimer) clearTimeout(finishTimer);
         unsubscribe();
         this.pool.unsubscribe(subId);
         resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
       };
+      this.pool.subscribe(
+        subId,
+        {
+          kinds: [30078, 20001],
+          "#t": ["mpg-lobby"],
+          "#g": [gameId],
+          since: Math.floor(Date.now() / 1e3) - 7200
+        },
+        () => {
+          if (!finishTimer) {
+            finishTimer = setTimeout(finish, 400);
+          }
+        }
+      );
+      finishTimer = setTimeout(() => {
+        finish();
+      }, 2500);
     });
   }
   async createLobby(options) {
@@ -2488,13 +2547,14 @@ var MinimalMqttClient = class {
     const packet = new Uint8Array([16, ...lenBytes, ...varPayload]);
     this.sendRaw(packet);
   }
-  publish(topic, message) {
+  publish(topic, message, retain = false) {
     const topicBytes = new TextEncoder().encode(topic);
     const topicLen = [topicBytes.length >> 8, topicBytes.length & 255];
     const msgBytes = new TextEncoder().encode(message);
     const varPayload = [...topicLen, ...topicBytes, ...msgBytes];
     const lenBytes = this.encodeLength(varPayload.length);
-    const packet = new Uint8Array([48, ...lenBytes, ...varPayload]);
+    const headerByte = retain ? 49 : 48;
+    const packet = new Uint8Array([headerByte, ...lenBytes, ...varPayload]);
     this.sendRaw(packet);
   }
   subscribe(topic) {
@@ -2622,7 +2682,14 @@ var MqttLobbySession = class extends TypedEventEmitter {
   }
   initNetwork() {
     this.mqtt.subscribe(this.roomTopic);
+    if (this.isHost) {
+      this.mqtt.subscribe(`mpg/${this.gameId}/lobbies/ping`);
+    }
     this.unsubscribeMessages = this.mqtt.onMessage((topic, payload) => {
+      if (this.isHost && topic === `mpg/${this.gameId}/lobbies/ping`) {
+        this.broadcastLobbyHeartbeat();
+        return;
+      }
       if (topic !== this.roomTopic) return;
       try {
         const msg = JSON.parse(payload);
@@ -2656,7 +2723,7 @@ var MqttLobbySession = class extends TypedEventEmitter {
       status: this._status,
       metadata: { ...this.metadata, hostPeerId: this._hostPeerId }
     };
-    this.mqtt.publish(this.lobbyTopic, JSON.stringify(info));
+    this.mqtt.publish(this.lobbyTopic, JSON.stringify(info), true);
   }
   handleRoomMessage(msg) {
     if (msg.type === "player_update" && msg.player) {
@@ -2749,6 +2816,9 @@ var MqttLobbySession = class extends TypedEventEmitter {
   }
   async leave() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.isHost) {
+      this.mqtt.publish(this.lobbyTopic, JSON.stringify({ roomId: this.roomId, status: "closed", numPlayers: 0 }), true);
+    }
     if (this.unsubscribeMessages) this.unsubscribeMessages();
   }
 };
@@ -2779,6 +2849,7 @@ var MqttLobbyProvider = class extends TypedEventEmitter {
     this.emit("disconnected", void 0);
   }
   async listLobbies(gameId) {
+    if (!this._isConnected) await this.connect();
     return new Promise((resolve) => {
       const discoveryTopic = `mpg/${gameId}/lobbies/+`;
       this.mqtt.subscribe(discoveryTopic);
@@ -2787,14 +2858,19 @@ var MqttLobbyProvider = class extends TypedEventEmitter {
         if (!topicMatches(discoveryTopic, topic)) return;
         try {
           const info = JSON.parse(payload);
+          if (info.status === "closed") {
+            lobbiesMap.delete(info.roomId);
+            return;
+          }
           lobbiesMap.set(info.roomId, { info, receivedAt: Date.now() });
         } catch {
         }
       });
+      this.mqtt.publish(`mpg/${gameId}/lobbies/ping`, "ping");
       setTimeout(() => {
         unsubscribe();
         resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
-      }, 1200);
+      }, 1500);
     });
   }
   async createLobby(options) {

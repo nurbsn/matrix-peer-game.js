@@ -31,7 +31,7 @@ export interface LobbyInfo {
   numPlayers?: number;
   numMembers?: number;
   maxPlayers: number;
-  status: 'waiting' | 'starting' | 'in_game';
+  status: 'waiting' | 'starting' | 'in_game' | 'closed';
   metadata?: Record<string, any>;
 }
 

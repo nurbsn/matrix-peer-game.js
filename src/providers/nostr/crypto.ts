@@ -2,7 +2,7 @@
 // Zero external npm dependencies.
 
 const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
-const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bb5bf5670f93448e2dn;
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const Gx = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
 const Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
 
@@ -106,21 +106,21 @@ export async function sha256Hex(data: string | Uint8Array): Promise<string> {
   return bytesToHex(hash);
 }
 
-// BIP-340 tagged hash
-async function taggedHash(tag: string, ...msgs: Uint8Array[]): Promise<Uint8Array> {
+// BIP-340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)
+export async function taggedHash(tag: string, msg: Uint8Array): Promise<Uint8Array> {
   const tagBytes = new TextEncoder().encode(tag);
   const tagHash = await sha256Bytes(tagBytes);
-  let totalLen = tagHash.length * 2;
-  for (const m of msgs) totalLen += m.length;
-  const concat = new Uint8Array(totalLen);
+  const concat = new Uint8Array(tagHash.length * 2 + msg.length);
   concat.set(tagHash, 0);
   concat.set(tagHash, tagHash.length);
-  let offset = tagHash.length * 2;
-  for (const m of msgs) {
-    concat.set(m, offset);
-    offset += m.length;
-  }
+  concat.set(msg, tagHash.length * 2);
   return sha256Bytes(concat);
+}
+
+function xorBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] ^ b[i];
+  return out;
 }
 
 // Generate random 32-byte secret key and corresponding public key
@@ -147,32 +147,50 @@ export function generateKeyPair(): { secretKey: string; publicKey: string } {
   };
 }
 
-// Sign 32-byte message hash using BIP-340 Schnorr
-export async function schnorrSign(msgHashHex: string, secretKeyHex: string): Promise<string> {
-  let d = BigInt('0x' + secretKeyHex);
-  const P0 = pointMultiply(d, G);
-  if (P0.y % 2n !== 0n) {
-    d = N - d;
-  }
+// Sign 32-byte message hash using canonical BIP-340 Schnorr
+export async function schnorrSign(msgHashHex: string, secretKeyHex: string, auxRandHex?: string): Promise<string> {
+  const d0 = BigInt('0x' + secretKeyHex);
+  if (d0 <= 0n || d0 >= N) throw new Error('Invalid secret key');
+
+  const P0 = pointMultiply(d0, G);
+  const d = P0.y % 2n === 0n ? d0 : N - d0;
+
+  const dBytes = hexToBytes(toHex32(d));
   const pxBytes = hexToBytes(toHex32(P0.x));
   const msgBytes = hexToBytes(msgHashHex);
 
-  const randAux = new Uint8Array(32);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(randAux);
+  let aBytes: Uint8Array;
+  if (auxRandHex) {
+    aBytes = hexToBytes(auxRandHex);
+  } else {
+    aBytes = new Uint8Array(32);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      crypto.getRandomValues(aBytes);
+    }
   }
 
-  const t = await taggedHash('BIP0340/nonce', hexToBytes(toHex32(d)), pxBytes, msgBytes, randAux);
-  let k = BigInt('0x' + bytesToHex(t)) % N;
-  if (k === 0n) k = 1n;
+  const tAux = await taggedHash('BIP0340/aux', aBytes);
+  const t = xorBytes(dBytes, tAux);
 
-  const R = pointMultiply(k, G);
-  if (R.y % 2n !== 0n) {
-    k = N - k;
-  }
+  const nonceInput = new Uint8Array(t.length + pxBytes.length + msgBytes.length);
+  nonceInput.set(t, 0);
+  nonceInput.set(pxBytes, t.length);
+  nonceInput.set(msgBytes, t.length + pxBytes.length);
+
+  const randHash = await taggedHash('BIP0340/nonce', nonceInput);
+  let k0 = BigInt('0x' + bytesToHex(randHash)) % N;
+  if (k0 === 0n) throw new Error('k0 is zero');
+
+  const R = pointMultiply(k0, G);
+  const k = R.y % 2n === 0n ? k0 : N - k0;
 
   const rxBytes = hexToBytes(toHex32(R.x));
-  const eHash = await taggedHash('BIP0340/challenge', rxBytes, pxBytes, msgBytes);
+  const challengeInput = new Uint8Array(rxBytes.length + pxBytes.length + msgBytes.length);
+  challengeInput.set(rxBytes, 0);
+  challengeInput.set(pxBytes, rxBytes.length);
+  challengeInput.set(msgBytes, rxBytes.length + pxBytes.length);
+
+  const eHash = await taggedHash('BIP0340/challenge', challengeInput);
   const e = BigInt('0x' + bytesToHex(eHash)) % N;
 
   const s = mod(k + e * d, N);

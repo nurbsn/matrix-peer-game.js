@@ -82,13 +82,14 @@ export class MinimalMqttClient {
     this.sendRaw(packet);
   }
 
-  publish(topic: string, message: string): void {
+  publish(topic: string, message: string, retain = false): void {
     const topicBytes = new TextEncoder().encode(topic);
     const topicLen = [topicBytes.length >> 8, topicBytes.length & 0xff];
     const msgBytes = new TextEncoder().encode(message);
     const varPayload = [...topicLen, ...topicBytes, ...msgBytes];
     const lenBytes = this.encodeLength(varPayload.length);
-    const packet = new Uint8Array([0x30, ...lenBytes, ...varPayload]);
+    const headerByte = retain ? 0x31 : 0x30;
+    const packet = new Uint8Array([headerByte, ...lenBytes, ...varPayload]);
     this.sendRaw(packet);
   }
 
@@ -251,8 +252,15 @@ export class MqttLobbySession extends TypedEventEmitter<LobbySessionEvents> impl
 
   private initNetwork(): void {
     this.mqtt.subscribe(this.roomTopic);
+    if (this.isHost) {
+      this.mqtt.subscribe(`mpg/${this.gameId}/lobbies/ping`);
+    }
 
     this.unsubscribeMessages = this.mqtt.onMessage((topic, payload) => {
+      if (this.isHost && topic === `mpg/${this.gameId}/lobbies/ping`) {
+        this.broadcastLobbyHeartbeat();
+        return;
+      }
       if (topic !== this.roomTopic) return;
       try {
         const msg = JSON.parse(payload);
@@ -288,7 +296,7 @@ export class MqttLobbySession extends TypedEventEmitter<LobbySessionEvents> impl
       status: this._status,
       metadata: { ...this.metadata, hostPeerId: this._hostPeerId }
     };
-    this.mqtt.publish(this.lobbyTopic, JSON.stringify(info));
+    this.mqtt.publish(this.lobbyTopic, JSON.stringify(info), true);
   }
 
   private handleRoomMessage(msg: any): void {
@@ -389,6 +397,9 @@ export class MqttLobbySession extends TypedEventEmitter<LobbySessionEvents> impl
 
   async leave(): Promise<void> {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.isHost) {
+      this.mqtt.publish(this.lobbyTopic, JSON.stringify({ roomId: this.roomId, status: 'closed', numPlayers: 0 }), true);
+    }
     if (this.unsubscribeMessages) this.unsubscribeMessages();
   }
 }
@@ -426,6 +437,8 @@ export class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> im
   }
 
   async listLobbies(gameId: string): Promise<LobbyInfo[]> {
+    if (!this._isConnected) await this.connect();
+
     return new Promise((resolve) => {
       const discoveryTopic = `mpg/${gameId}/lobbies/+`;
       this.mqtt.subscribe(discoveryTopic);
@@ -435,14 +448,21 @@ export class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> im
         if (!topicMatches(discoveryTopic, topic)) return;
         try {
           const info = JSON.parse(payload) as LobbyInfo;
+          if (info.status === 'closed') {
+            lobbiesMap.delete(info.roomId);
+            return;
+          }
           lobbiesMap.set(info.roomId, { info, receivedAt: Date.now() });
         } catch {}
       });
 
+      // Send discovery ping so active hosts immediately respond
+      this.mqtt.publish(`mpg/${gameId}/lobbies/ping`, 'ping');
+
       setTimeout(() => {
         unsubscribe();
         resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
-      }, 1200);
+      }, 1500);
     });
   }
 

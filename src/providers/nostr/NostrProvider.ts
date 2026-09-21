@@ -22,9 +22,9 @@ export interface NostrEvent {
 }
 
 export const DEFAULT_NOSTR_RELAYS = [
-  'wss://relay.damus.io',
   'wss://nos.lol',
-  'wss://relay.snort.social'
+  'wss://relay.damus.io',
+  'wss://nostr.mom'
 ];
 
 export class NostrRelayPool {
@@ -37,10 +37,25 @@ export class NostrRelayPool {
   async connect(): Promise<void> {
     if (typeof WebSocket === 'undefined') return;
 
+    const connectPromises: Promise<void>[] = [];
+
     for (const url of this.relayUrls) {
       if (this.sockets.has(url)) continue;
       try {
         const ws = new WebSocket(url);
+        const p = new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 2500);
+          ws.onopen = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+          ws.onerror = () => {
+            clearTimeout(timeout);
+            resolve();
+          };
+        });
+        connectPromises.push(p);
+
         ws.onmessage = (msg) => {
           try {
             const data = JSON.parse(msg.data);
@@ -58,6 +73,13 @@ export class NostrRelayPool {
         ws.onerror = () => {};
         this.sockets.set(url, ws);
       } catch {}
+    }
+
+    if (connectPromises.length > 0) {
+      await Promise.race([
+        Promise.all(connectPromises),
+        new Promise((resolve) => setTimeout(resolve, 1500))
+      ]);
     }
   }
 
@@ -192,20 +214,20 @@ export class NostrLobbySession extends TypedEventEmitter<LobbySessionEvents> imp
       this.handleIncomingEvent(event);
     });
 
-    // Subscribe to room events: kind 20001 (lobby), 20002 (players), 20003 (chat)
+    // Subscribe to room events: kind 30078/20001 (lobby), 20002 (players), 20003 (chat)
     this.pool.subscribe(this.subId, {
-      kinds: [20001, 20002, 20003],
+      kinds: [30078, 20001, 20002, 20003],
       '#d': [this.roomId],
-      since: Math.floor(Date.now() / 1000) - 30
+      since: Math.floor(Date.now() / 1000) - 300
     });
 
     if (this.isHost) {
       this.broadcastLobbyHeartbeat();
       this.heartbeatTimer = setInterval(() => {
         this.broadcastLobbyHeartbeat();
-      }, 8000);
+      }, 7000);
     } else {
-      // Announce guest presence
+      // Announce guest presence to host
       const self = this._players.get(this.keyPair.publicKey);
       if (self) {
         this.publishEvent(20002, [['d', this.roomId]], {
@@ -217,7 +239,7 @@ export class NostrLobbySession extends TypedEventEmitter<LobbySessionEvents> imp
   }
 
   private broadcastLobbyHeartbeat(): void {
-    this.publishEvent(20001, [['d', this.roomId], ['t', 'mpg-lobby'], ['g', this.gameId]], {
+    this.publishEvent(30078, [['d', this.roomId], ['t', 'mpg-lobby'], ['g', this.gameId]], {
       name: this.metadata.name || 'Nostr Lobby',
       gameId: this.gameId,
       hostUserId: this.hostUserId,
@@ -236,7 +258,7 @@ export class NostrLobbySession extends TypedEventEmitter<LobbySessionEvents> imp
 
     try {
       const data = JSON.parse(event.content);
-      if (event.kind === 20001) {
+      if (event.kind === 30078 || event.kind === 20001) {
         // Lobby status update
         if (data.status && data.status !== this._status) {
           this._status = data.status;
@@ -258,6 +280,17 @@ export class NostrLobbySession extends TypedEventEmitter<LobbySessionEvents> imp
           }
           if (isNew) {
             this.emit('playerJoined', p);
+            if (this.isHost) {
+              // Host answers back so the newly joined player receives the host's info immediately
+              this.broadcastLobbyHeartbeat();
+              const hostSelf = this._players.get(this.keyPair.publicKey);
+              if (hostSelf) {
+                this.publishEvent(20002, [['d', this.roomId]], {
+                  type: 'player_update',
+                  player: hostSelf
+                });
+              }
+            }
           } else {
             this.emit('playerUpdated', p);
           }
@@ -336,6 +369,15 @@ export class NostrLobbySession extends TypedEventEmitter<LobbySessionEvents> imp
 
   async leave(): Promise<void> {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.isHost) {
+      try {
+        await this.publishEvent(30078, [['d', this.roomId], ['t', 'mpg-lobby'], ['g', this.gameId]], {
+          status: 'closed',
+          numPlayers: 0,
+          gameId: this.gameId
+        });
+      } catch {}
+    }
     if (this.unsubscribeMessages) this.unsubscribeMessages();
     this.pool.unsubscribe(this.subId);
   }
@@ -396,17 +438,24 @@ export class NostrLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> i
   }
 
   async listLobbies(gameId: string): Promise<LobbyInfo[]> {
+    await this.pool.connect();
+
     return new Promise((resolve) => {
       const subId = 'list_' + Math.random().toString(36).substring(2, 9);
       const lobbiesMap = new Map<string, { info: LobbyInfo; createdAt: number }>();
 
       const unsubscribe = this.pool.onMessage((event) => {
-        if (event.kind !== 20001) return;
+        if (event.kind !== 30078 && event.kind !== 20001) return;
         const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
         if (!dTag) return;
         try {
           const data = JSON.parse(event.content);
           if (data.gameId !== gameId) return;
+
+          if (data.status === 'closed') {
+            lobbiesMap.delete(dTag);
+            return;
+          }
 
           const prev = lobbiesMap.get(dTag);
           if (!prev || event.created_at > prev.createdAt) {
@@ -427,29 +476,32 @@ export class NostrLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> i
         } catch {}
       });
 
-      this.pool.subscribe(
-        subId,
-        {
-          kinds: [20001],
-          '#t': ['mpg-lobby'],
-          '#g': [gameId],
-          since: Math.floor(Date.now() / 1000) - 45
-        },
-        () => {
-          finish();
-        }
-      );
-
-      const timeout = setTimeout(() => {
-        finish();
-      }, 1500);
-
+      let finishTimer: any = null;
       const finish = () => {
-        clearTimeout(timeout);
+        if (finishTimer) clearTimeout(finishTimer);
         unsubscribe();
         this.pool.unsubscribe(subId);
         resolve(Array.from(lobbiesMap.values()).map((v) => v.info));
       };
+
+      this.pool.subscribe(
+        subId,
+        {
+          kinds: [30078, 20001],
+          '#t': ['mpg-lobby'],
+          '#g': [gameId],
+          since: Math.floor(Date.now() / 1000) - 7200
+        },
+        () => {
+          if (!finishTimer) {
+            finishTimer = setTimeout(finish, 400);
+          }
+        }
+      );
+
+      finishTimer = setTimeout(() => {
+        finish();
+      }, 2500);
     });
   }
 
