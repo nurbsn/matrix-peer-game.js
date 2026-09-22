@@ -65,5 +65,32 @@ export default defineConfig([
       return { js: '.js' };
     },
     outDir: 'dist',
+  },
+  // Browser standalone bundle without "omni" substring to avoid adblock / EasyPrivacy filters (npeer.js)
+  {
+    entry: { 'npeer': 'src/index.ts' },
+    format: ['iife'],
+    globalName: 'nOmniPeer',
+    minify: false,
+    sourcemap: true,
+    noExternal: ['peerjs'],
+    platform: 'browser',
+    outExtension() {
+      return { js: '.js' };
+    },
+    outDir: 'dist',
+  },
+  // Browser minified bundle (npeer.min.js)
+  {
+    entry: { 'npeer.min': 'src/index.ts' },
+    format: ['iife'],
+    globalName: 'nOmniPeer',
+    minify: true,
+    noExternal: ['peerjs'],
+    platform: 'browser',
+    outExtension() {
+      return { js: '.js' };
+    },
+    outDir: 'dist',
   }
 ]);

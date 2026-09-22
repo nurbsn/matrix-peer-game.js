@@ -100,6 +100,22 @@
   <div id="auth-card" class="card">
     <h3 style="margin-bottom: 12px;">1. Wybierz Technologię Lobby & Matchmakingu</h3>
     
+    <!-- Ostrzeżenie uBlock / AdBlock (widoczne jeśli biblioteka została zablokowana) -->
+    <div id="adblock-warning" class="hidden" style="background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; font-size: 0.86rem; color: #fca5a5;">
+      <div style="display: flex; align-items: flex-start; gap: 10px;">
+        <span style="font-size: 1.3rem; line-height: 1;">🛡️</span>
+        <div>
+          <b style="color: #ef4444; font-size: 0.95rem;">Wykryto uBlock Origin / AdBlock</b>
+          <p style="margin-top: 4px; color: #f8fafc; line-height: 1.4;">
+            Rozszerzenie blokujące zablokowało ładowanie skryptu <code>nomnipeer.js</code> (reguła EasyPrivacy filtrująca ciąg <i>*omni*</i> dla Adobe Omniture).
+          </p>
+          <p style="margin-top: 4px; color: #cbd5e1; line-height: 1.4;">
+            Dodaj tę domenę do wyjątków w uBlock Origin (ikona uBlock &rarr; duży przycisk wyłącznika &rarr; odśwież stronę), aby umożliwić nawiązanie połączenia WebSockets i WebRTC.
+          </p>
+        </div>
+      </div>
+    </div>
+
     <!-- Zakładki wyboru providera -->
     <div class="tabs-nav">
       <button class="tab-btn active" data-tab="tab-nostr">⚡ NOSTR (Zero-Auth / Otwarty)</button>
@@ -307,8 +323,17 @@
   </div>
 </div>
 
-<!-- Standalone bundle nOmniPeer.js (płaskie JS bez Node.js!) -->
+<!-- Standalone bundle nOmniPeer.js z automatycznym fallbackiem (w razie blokady *omni* przez uBlock Origin) -->
 <script src="../../dist/nomnipeer.js"></script>
+<script>
+  if (!window.nOmniPeer && !window.MatrixPeerGame) {
+    console.warn('[nOmniPeer] nomnipeer.js został zablokowany (np. reguła uBlock Origin dla *omni*). Wczytywanie fallbacku: npeer.js...');
+    document.write('<script src="../../dist/npeer.js"><\/script>');
+    if (!window.nOmniPeer && !window.MatrixPeerGame) {
+      document.write('<script src="../../dist/matrix-peer-game.js"><\/script>');
+    }
+  }
+</script>
 
 <script>
   // --- 1. STAN GRACZA I OBIEKTÓW GRY ---
@@ -448,6 +473,21 @@
     return lib && (lib.Client || lib.GameNetClient);
   };
 
+  function checkAdblockStatus() {
+    if (!getClientConstructor()) {
+      const banner = document.getElementById('adblock-warning');
+      if (banner) banner.classList.remove('hidden');
+      return false;
+    }
+    const banner = document.getElementById('adblock-warning');
+    if (banner) banner.classList.add('hidden');
+    return true;
+  }
+
+  // Weryfikacja po załadowaniu strony
+  window.addEventListener('DOMContentLoaded', () => setTimeout(checkAdblockStatus, 400));
+  window.addEventListener('load', () => setTimeout(checkAdblockStatus, 800));
+
   // --- 4. LOGOWANIE DO WYBRANEGO PROVIDERA ---
   // NOSTR:
   document.getElementById('btn-login-nostr').addEventListener('click', async () => {
@@ -483,6 +523,10 @@
 
     try {
       const ClientConstructor = getClientConstructor();
+      if (!ClientConstructor) {
+        checkAdblockStatus();
+        throw new Error('Biblioteka nOmniPeer nie została załadowana (sprawdź uBlock Origin)!');
+      }
       client = new ClientConstructor({ provider: 'matrix', homeserver: 'https://matrix.org', gameId: 'babo-shooter' });
       await client.loginWithPassword(user, pass);
       client.saveSession('babo_auth');
@@ -494,11 +538,17 @@
 
   // DIRECT P2P:
   document.getElementById('btn-create-direct-p2p').addEventListener('click', () => {
+    const lib = window.nOmniPeer || window.MatrixPeerGame;
+    if (!lib || !lib.PeerManager) {
+      checkAdblockStatus();
+      alert('Biblioteka nOmniPeer nie została załadowana! Sprawdź uBlock Origin.');
+      return;
+    }
     myPlayer.nickname = document.getElementById('p2p-nickname').value.trim() || myPlayer.nickname;
     isDirectP2PMode = true;
     activeProviderName = 'direct';
 
-    const { PeerManager } = window.nOmniPeer || window.MatrixPeerGame;
+    const { PeerManager } = lib;
     directPeerManager = new PeerManager({ isHost: true });
 
     directPeerManager.on('ready', (peerId) => {
@@ -523,6 +573,12 @@
   });
 
   document.getElementById('btn-join-direct-p2p').addEventListener('click', () => {
+    const lib = window.nOmniPeer || window.MatrixPeerGame;
+    if (!lib || !lib.PeerManager) {
+      checkAdblockStatus();
+      alert('Biblioteka nOmniPeer nie została załadowana! Sprawdź uBlock Origin.');
+      return;
+    }
     const code = document.getElementById('p2p-join-code').value.trim();
     if (!code) return alert('Wklej Kod Pokoju P2P!');
     myPlayer.nickname = document.getElementById('p2p-nickname').value.trim() || myPlayer.nickname;
@@ -530,7 +586,7 @@
     currentDirectHostCode = code;
     activeProviderName = 'direct';
 
-    const { PeerManager } = window.nOmniPeer || window.MatrixPeerGame;
+    const { PeerManager } = lib;
     directPeerManager = new PeerManager({ isHost: false });
 
     directPeerManager.on('ready', () => {
@@ -549,6 +605,11 @@
 
   function initClientWithProvider(providerName, extraOpts = {}) {
     const ClientConstructor = getClientConstructor();
+    if (!ClientConstructor) {
+      checkAdblockStatus();
+      alert('Nie udało się załadować biblioteki nOmniPeer!\n\nJeżeli korzystasz z uBlock Origin lub AdBlock, wyłącz go dla tej strony (filtry prywatności blokują pliki zawierające ciąg "omni"). Po wyłączeniu odśwież stronę (F5).');
+      return;
+    }
     client = new ClientConstructor({
       provider: providerName,
       gameId: 'babo-shooter',

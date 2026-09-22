@@ -43,7 +43,20 @@
 
   <script src="../../dist/nomnipeer.js"></script>
   <script>
-    const { TurnBasedEngine, TypedEventEmitter } = window.nOmniPeer || MatrixPeerGame;
+    if (!window.nOmniPeer && !window.MatrixPeerGame) {
+      document.write('<script src="../../dist/npeer.js"><\/script>');
+      if (!window.nOmniPeer && !window.MatrixPeerGame) {
+        document.write('<script src="../../dist/matrix-peer-game.js"><\/script>');
+      }
+    }
+  </script>
+  <script>
+    const lib = window.nOmniPeer || window.MatrixPeerGame;
+    if (!lib) {
+      document.getElementById('history').innerHTML = '<span style="color:#ef4444;">Błąd: Biblioteka nOmniPeer została zablokowana przez uBlock Origin (filtr *omni*). Wyłącz uBlock i odśwież stronę.</span>';
+      throw new Error('nOmniPeer not loaded');
+    }
+    const { TurnBasedEngine, TypedEventEmitter } = lib;
 
     class DemoPeerManager extends TypedEventEmitter {
       constructor() {

@@ -240,8 +240,17 @@
   </div>
 </div>
 
-<!-- Dołączenie biblioteki nOmniPeer.js jako płaskie JS bez Node.js! -->
+<!-- Dołączenie biblioteki nOmniPeer.js jako płaskie JS bez Node.js (z automatycznym fallbackiem)! -->
 <script src="../../dist/nomnipeer.js"></script>
+<script>
+  if (!window.nOmniPeer && !window.MatrixPeerGame) {
+    console.warn('[nOmniPeer] nomnipeer.js zablokowany (np. filtr *omni* w uBlock Origin). Wczytywanie fallbacku: npeer.js...');
+    document.write('<script src="../../dist/npeer.js"><\/script>');
+    if (!window.nOmniPeer && !window.MatrixPeerGame) {
+      document.write('<script src="../../dist/matrix-peer-game.js"><\/script>');
+    }
+  }
+</script>
 
 <script>
   const myRandomId = Math.floor(1000 + Math.random() * 9000);
@@ -277,8 +286,8 @@
   });
 
   const getClientConstructor = () => {
-    return (window.MatrixPeerGame && (window.MatrixPeerGame.Client || window.MatrixPeerGame.GameNetClient)) ||
-           (typeof MatrixPeerGame !== 'undefined' && (MatrixPeerGame.Client || MatrixPeerGame.GameNetClient));
+    const lib = window.nOmniPeer || window.MatrixPeerGame || (typeof nOmniPeer !== 'undefined' ? nOmniPeer : (typeof MatrixPeerGame !== 'undefined' ? MatrixPeerGame : null));
+    return lib && (lib.Client || lib.GameNetClient);
   };
 
   // 1. Logowanie hasłem
@@ -357,7 +366,9 @@
     myPlayer.nickname = nick;
     isDirectP2P = true;
 
-    const { PeerManager } = MatrixPeerGame;
+    const lib = window.nOmniPeer || window.MatrixPeerGame || {};
+    const { PeerManager } = lib;
+    if (!PeerManager) return alert('Biblioteka nOmniPeer nie została załadowana! Sprawdź uBlock Origin.');
     directPeerManager = new PeerManager({ isHost: true });
 
     directPeerManager.on('ready', (peerId) => {
@@ -382,7 +393,9 @@
     myPlayer.nickname = nick;
     isDirectP2P = true;
 
-    const { PeerManager } = MatrixPeerGame;
+    const lib = window.nOmniPeer || window.MatrixPeerGame || {};
+    const { PeerManager } = lib;
+    if (!PeerManager) return alert('Biblioteka nOmniPeer nie została załadowana! Sprawdź uBlock Origin.');
     directPeerManager = new PeerManager({ isHost: false });
 
     directPeerManager.on('ready', () => {
