@@ -493,4 +493,38 @@ export class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
       }
     }
   }
+
+  /**
+   * Set user account data (arbitrary JSON attached to the user's Matrix account)
+   * Matrix spec: PUT /_matrix/client/v3/user/{userId}/account_data/{type}
+   */
+  async setAccountData(type: string, data: any): Promise<void> {
+    if (!this.auth) throw new Error('Not authenticated to Matrix');
+    const encodedUser = encodeURIComponent(this.auth.userId);
+    const encodedType = encodeURIComponent(type);
+    await this.request(
+      `/_matrix/client/v3/user/${encodedUser}/account_data/${encodedType}`,
+      'PUT',
+      data
+    );
+  }
+
+  /**
+   * Get user account data
+   * Matrix spec: GET /_matrix/client/v3/user/{userId}/account_data/{type}
+   */
+  async getAccountData<T = any>(type: string): Promise<T | null> {
+    if (!this.auth) throw new Error('Not authenticated to Matrix');
+    const encodedUser = encodeURIComponent(this.auth.userId);
+    const encodedType = encodeURIComponent(type);
+    try {
+      const res = await this.request<T>(
+        `/_matrix/client/v3/user/${encodedUser}/account_data/${encodedType}`,
+        'GET'
+      );
+      return res;
+    } catch {
+      return null;
+    }
+  }
 }

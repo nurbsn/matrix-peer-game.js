@@ -244,13 +244,51 @@ Oficjalny serwer `matrix.org` wyłączył rejestrację anonimowych gości (`403 
 
 ---
 
+---
+
+## ☁️ Zapis Danych Gracza i Stanu Gry w Chmurze (Cloud Saves)
+
+`nOmniPeer.js` posiada ujednolicone API do trwałego zapisywania postępów gracza, statystyk (K/D, rekordy), odblokowanych skórek i stanów gry:
+
+```javascript
+// 1. Zapisanie statystyk lub stanu gry
+await client.savePlayerData('stats', {
+  kills: 25,
+  deaths: 4,
+  highScore: 3500,
+  unlockedSkins: ['neon_blue', 'golden_bullet']
+});
+
+// 2. Wczytanie danych gracza przy starcie gry
+const stats = await client.loadPlayerData('stats');
+if (stats) {
+  console.log(`Wczytano statystyki gracza: ${stats.kills} fragów, rekord: ${stats.highScore} pkt`);
+}
+```
+
+Działa automatycznie w zależności od wybranego dostawcy:
+- **Firebase:** Zapis do Realtime Database w ścieżce `/users/{userId}/{key}.json`.
+- **Matrix:** Zapis do oficjalnego Matrix Account Data (`m.account_data`) powiązanego z kontem gracza.
+- **NOSTR:** Zapis jako zdarzenie NIP-78 (`kind: 30078`) podpisane kluczem prywatnym gracza.
+- **Direct P2P / MQTT:** Bezpieczny fallback do `localStorage` przeglądarki.
+
+---
+
+## 📚 Poradniki Konfiguracji Krok po Kroku
+
+Dla deweloperów chcących wdrożyć produkcyjny backend:
+- 📖 **[🔥 Poradnik Konfiguracji Firebase (Krok po Kroku)](docs/setup-firebase.pl.md)** – od założenia darmowego projektu w Google Console, przez reguły bazy, po logowanie Google i Anonimowe.
+- 📖 **[🪐 Poradnik Własnego Serwera Matrix Conduit (Krok po Kroku)](docs/setup-matrix.pl.md)** – ultra-lekki serwer w Dockerze (<30 MB RAM), darmowy certyfikat SSL z Let's Encrypt i konta gości bez captchy.
+
+---
+
 ## 🛠️ Budowanie i Testy (Dla Deweloperów)
 
 ```bash
 # Instalacja zależności
 npm install
 
-# Uruchomienie testów jednostkowych (Vitest - 23 testy zaliczone)
+# Uruchomienie testów jednostkowych (Vitest - 30 testów zaliczonych)
 npm run test
 
 # Zbudowanie plików standalone oraz modułów ESM/CJS (Tsup)
@@ -259,7 +297,8 @@ npm run build
 
 Pliki wyjściowe w `dist/`:
 - `dist/nomnipeer.js` – wersja standalone (IIFE z wbudowanym PeerJS do tagu `<script>`, global `nOmniPeer`)
-- `dist/nomnipeer.min.js` – wersja zminifikowana (~143 KB)
+- `dist/nomnipeer.min.js` – wersja zminifikowana (~148 KB)
+- `dist/npeer.js` / `dist/npeer.min.js` – czysta wersja odporna na filtry adblockerów (omija reguły blokujące `*omni*.js`)
 - `dist/matrix-peer-game.js` – wersja dla kompatybilności wstecznej (global `MatrixPeerGame`)
 - `dist/matrix-peer-game.min.js` – zminifikowana wersja kompatybilności wstecznej
 - `dist/index.mjs` – moduł ES

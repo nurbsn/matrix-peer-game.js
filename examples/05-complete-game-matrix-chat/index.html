@@ -244,6 +244,28 @@
         <button id="btn-logout" class="secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;">Zmień Sieć</button>
       </div>
     </div>
+
+    <!-- KARTA PROFILU I STATYSTYK W CHMURZE -->
+    <div id="stats-banner" class="hint-box" style="background: #070d1a; border: 1px solid var(--border); margin-bottom: 14px; padding: 12px 16px; border-radius: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div id="stat-avatar-circle" style="width: 36px; height: 36px; border-radius: 50%; background: #38bdf8; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem; color: #000;">B</div>
+          <div>
+            <div style="font-weight: bold; font-size: 0.92rem; display: flex; align-items: center; gap: 8px;">
+              <span id="stat-nickname">Babo</span>
+              <span id="cloud-sync-badge" class="badge blue">☁️ Wczytywanie...</span>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 2px;">
+              Łączne Fragi: <b id="stat-kills" style="color: #38bdf8;">0</b> | 
+              Zgony: <b id="stat-deaths" style="color: #ef4444;">0</b> | 
+              K/D: <b id="stat-kd" style="color: #22c55e;">0.0</b> | 
+              Rekord: <b id="stat-highscore" style="color: #fbbf24;">0</b> pkt
+            </div>
+          </div>
+        </div>
+        <button id="btn-reset-stats" class="secondary" style="width: auto; padding: 4px 10px; font-size: 0.75rem;">Resetuj Statystyki</button>
+      </div>
+    </div>
     
     <div class="row">
       <div class="col">
@@ -296,6 +318,8 @@
         <div class="hud-bar">
           <div>HP: <span id="my-hp" class="hud-hp">100%</span></div>
           <div>Fragi: <span id="my-kills" class="hud-score">0</span></div>
+          <div>Punkty: <span id="my-score" style="color: #fbbf24; font-weight: bold;">0</span></div>
+          <div id="hud-cloud-status" style="font-size: 0.78rem; color: #38bdf8;">☁️ Chmura aktywna</div>
           <div id="ping-badge" style="color: var(--text-dim);">Ping: -- ms</div>
           <div style="color: var(--text-dim);">Ruch: <b>WASD</b> | Celowanie/Strzał: <b>Myszka (LPM)</b></div>
         </div>
@@ -358,6 +382,111 @@
   document.getElementById('mqtt-nickname').value = myPlayer.nickname;
   document.getElementById('firebase-nickname').value = myPlayer.nickname;
   document.getElementById('p2p-nickname').value = myPlayer.nickname;
+
+  // --- STATYSTYKI I PROFIL GRACZA (CLOUD SAVES) ---
+  const playerStats = {
+    kills: 0,
+    deaths: 0,
+    score: 0,
+    highScore: 0,
+    lastSaved: null
+  };
+
+  async function loadPlayerStatsFromCloud() {
+    const syncBadge = document.getElementById('cloud-sync-badge');
+    if (syncBadge) syncBadge.textContent = '☁️ Synchronizacja...';
+
+    let loaded = null;
+    if (client && typeof client.loadPlayerData === 'function') {
+      try {
+        loaded = await client.loadPlayerData('stats');
+      } catch (e) {
+        console.warn('Błąd odczytu chmury:', e);
+      }
+    }
+    if (!loaded && typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('mpg_local_stats_' + myPlayer.nickname);
+        if (raw) loaded = JSON.parse(raw);
+      } catch {}
+    }
+
+    if (loaded) {
+      playerStats.kills = Number(loaded.kills) || 0;
+      playerStats.deaths = Number(loaded.deaths) || 0;
+      playerStats.highScore = Number(loaded.highScore) || 0;
+      myPlayer.kills = playerStats.kills;
+      myPlayer.deaths = playerStats.deaths;
+    }
+    updateStatsUI();
+
+    if (syncBadge) {
+      const provTag = activeProviderName.toUpperCase();
+      syncBadge.className = 'badge green';
+      syncBadge.textContent = `☁️ Zsynchronizowano (${provTag})`;
+    }
+  }
+
+  async function savePlayerStatsToCloud() {
+    playerStats.kills = myPlayer.kills;
+    playerStats.deaths = myPlayer.deaths;
+    if (playerStats.score > playerStats.highScore) {
+      playerStats.highScore = playerStats.score;
+    }
+    playerStats.lastSaved = Date.now();
+    updateStatsUI();
+
+    if (client && typeof client.savePlayerData === 'function') {
+      try {
+        await client.savePlayerData('stats', playerStats);
+      } catch (e) {
+        console.warn('Błąd zapisu w chmurze:', e);
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('mpg_local_stats_' + myPlayer.nickname, JSON.stringify(playerStats));
+      } catch {}
+    }
+  }
+
+  function updateStatsUI() {
+    const nickEl = document.getElementById('stat-nickname');
+    const avatarEl = document.getElementById('stat-avatar-circle');
+    const killsEl = document.getElementById('stat-kills');
+    const deathsEl = document.getElementById('stat-deaths');
+    const kdEl = document.getElementById('stat-kd');
+    const highscoreEl = document.getElementById('stat-highscore');
+    const hudKills = document.getElementById('my-kills');
+    const hudScore = document.getElementById('my-score');
+
+    if (nickEl) nickEl.textContent = myPlayer.nickname;
+    if (avatarEl) {
+      avatarEl.textContent = (myPlayer.nickname || 'B')[0].toUpperCase();
+      avatarEl.style.background = myPlayer.color || '#38bdf8';
+    }
+    if (killsEl) killsEl.textContent = myPlayer.kills;
+    if (deathsEl) deathsEl.textContent = myPlayer.deaths;
+    if (kdEl) {
+      const kd = myPlayer.deaths === 0 ? myPlayer.kills : (myPlayer.kills / myPlayer.deaths).toFixed(1);
+      kdEl.textContent = kd;
+    }
+    if (highscoreEl) highscoreEl.textContent = playerStats.highScore;
+    if (hudKills) hudKills.textContent = myPlayer.kills;
+    if (hudScore) hudScore.textContent = playerStats.score;
+  }
+
+  document.getElementById('btn-reset-stats')?.addEventListener('click', async () => {
+    if (!confirm('Czy na pewno chcesz zresetować swoje statystyki w chmurze?')) return;
+    myPlayer.kills = 0;
+    myPlayer.deaths = 0;
+    playerStats.kills = 0;
+    playerStats.deaths = 0;
+    playerStats.score = 0;
+    playerStats.highScore = 0;
+    await savePlayerStatsToCloud();
+    alert('Statystyki zostały zresetowane!');
+  });
 
   let client = null;
   let currentLobby = null;
@@ -562,6 +691,7 @@
       document.getElementById('btn-start').classList.remove('hidden');
 
       renderP2PPlayer(myPlayer.nickname, true);
+      loadPlayerStatsFromCloud();
     });
 
     directPeerManager.on('peerConnected', (remoteId) => {
@@ -598,6 +728,7 @@
 
       renderP2PPlayer(myPlayer.nickname, false);
       renderP2PPlayer('Host', true);
+      loadPlayerStatsFromCloud();
     });
 
     setupDirectP2PData();
@@ -626,6 +757,7 @@
     document.getElementById('user-badge').textContent = displayName;
     document.getElementById('provider-badge').textContent = provTag;
     setupGameNetworkEvents();
+    loadPlayerStatsFromCloud();
   }
 
   // Odświeżanie listy pokoi
@@ -852,19 +984,23 @@
       });
     } else if (data.type === 'HIT') {
       if (data.victimId === myPlayer.id && !myPlayer.isDead) {
-        takeDamage(data.damage, data.shooterName);
+        takeDamage(data.damage, data.shooterName, data.shooterId);
       }
       spawnSparks(data.x, data.y, data.color || '#ef4444', 10);
     } else if (data.type === 'PLAYER_KILLED') {
       appendChatMessage('KillFeed', `💥 ${data.killerName} zlikwidował ${data.victimName}!`, false, true);
       if (data.killerId === myPlayer.id) {
         myPlayer.kills++;
-        document.getElementById('my-kills').textContent = myPlayer.kills;
+        playerStats.score += 100;
+        if (playerStats.score > playerStats.highScore) {
+          playerStats.highScore = playerStats.score;
+        }
+        savePlayerStatsToCloud();
       }
     }
   }
 
-  function takeDamage(dmg, attackerName) {
+  function takeDamage(dmg, attackerName, attackerId) {
     myPlayer.hp = Math.max(0, myPlayer.hp - dmg);
     const hpSpan = document.getElementById('my-hp');
     hpSpan.textContent = myPlayer.hp + '%';
@@ -873,12 +1009,14 @@
     if (myPlayer.hp <= 0 && !myPlayer.isDead) {
       myPlayer.isDead = true;
       myPlayer.deaths++;
+      savePlayerStatsToCloud();
       spawnSparks(myPlayer.x, myPlayer.y, myPlayer.color, 30);
       appendChatMessage('System', `Zostałeś wyeliminowany przez ${attackerName}! Respawn za 2s...`, true);
 
       broadcastGamePacket({
         type: 'PLAYER_KILLED',
         killerName: attackerName,
+        killerId: attackerId,
         victimName: myPlayer.nickname,
         victimId: myPlayer.id
       });

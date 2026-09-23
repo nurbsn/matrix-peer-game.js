@@ -92,4 +92,16 @@ export interface ILobbyProvider extends TypedEventEmitter<LobbyProviderEvents> {
   listLobbies(gameId: string): Promise<LobbyInfo[]>;
   createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
   joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+
+  savePlayerData?(key: string, data: any): Promise<void>;
+  loadPlayerData?(key: string): Promise<any | null>;
+}
+
+export interface PlayerData {
+  nickname?: string;
+  avatar?: string;
+  stats?: Record<string, number>;
+  saveState?: Record<string, any>;
+  updatedAt?: number;
+  [key: string]: any;
 }

@@ -1134,6 +1134,38 @@ var nOmniPeer = (() => {
         }
       }
     }
+    /**
+     * Set user account data (arbitrary JSON attached to the user's Matrix account)
+     * Matrix spec: PUT /_matrix/client/v3/user/{userId}/account_data/{type}
+     */
+    async setAccountData(type, data) {
+      if (!this.auth) throw new Error("Not authenticated to Matrix");
+      const encodedUser = encodeURIComponent(this.auth.userId);
+      const encodedType = encodeURIComponent(type);
+      await this.request(
+        `/_matrix/client/v3/user/${encodedUser}/account_data/${encodedType}`,
+        "PUT",
+        data
+      );
+    }
+    /**
+     * Get user account data
+     * Matrix spec: GET /_matrix/client/v3/user/{userId}/account_data/{type}
+     */
+    async getAccountData(type) {
+      if (!this.auth) throw new Error("Not authenticated to Matrix");
+      const encodedUser = encodeURIComponent(this.auth.userId);
+      const encodedType = encodeURIComponent(type);
+      try {
+        const res = await this.request(
+          `/_matrix/client/v3/user/${encodedUser}/account_data/${encodedType}`,
+          "GET"
+        );
+        return res;
+      } catch {
+        return null;
+      }
+    }
   };
 
   // node_modules/peerjs-js-binarypack/dist/binarypack.mjs
@@ -6479,6 +6511,24 @@ var nOmniPeer = (() => {
       });
       return lobby;
     }
+    async savePlayerData(key, data) {
+      if (!this.matrix.isAuthenticated) {
+        throw new Error("Matrix client is not authenticated to save player data");
+      }
+      const type = `org.nomnipeer.player.${key}`;
+      const payload = {
+        ...typeof data === "object" && data !== null ? data : { value: data },
+        _updatedAt: Date.now()
+      };
+      await this.matrix.setAccountData(type, payload);
+    }
+    async loadPlayerData(key) {
+      if (!this.matrix.isAuthenticated) {
+        return null;
+      }
+      const type = `org.nomnipeer.player.${key}`;
+      return await this.matrix.getAccountData(type);
+    }
   };
 
   // src/providers/nostr/crypto.ts
@@ -7219,6 +7269,82 @@ var nOmniPeer = (() => {
       });
       return session;
     }
+    async createSignedEvent(kind, tags, contentObj) {
+      const content = typeof contentObj === "string" ? contentObj : JSON.stringify(contentObj);
+      const createdAt = Math.floor(Date.now() / 1e3);
+      const serialized = JSON.stringify([0, this.keyPair.publicKey, createdAt, kind, tags, content]);
+      const id = await sha256Hex(serialized);
+      const sig = await schnorrSign(id, this.keyPair.secretKey);
+      return {
+        id,
+        pubkey: this.keyPair.publicKey,
+        created_at: createdAt,
+        kind,
+        tags,
+        content,
+        sig
+      };
+    }
+    async savePlayerData(key, data) {
+      const dTag = `nomnipeer:player:${key}`;
+      const payload = {
+        ...typeof data === "object" && data !== null ? data : { value: data },
+        _updatedAt: Date.now()
+      };
+      const event = await this.createSignedEvent(
+        30078,
+        [
+          ["d", dTag],
+          ["t", "nomnipeer-player-data"]
+        ],
+        payload
+      );
+      this.pool.send(["EVENT", event]);
+    }
+    async loadPlayerData(key) {
+      const dTag = `nomnipeer:player:${key}`;
+      const subId = "pdata_" + Math.random().toString(36).substring(2, 9);
+      return new Promise((resolve) => {
+        let result = null;
+        let latestCreatedAt = 0;
+        let finishTimer = null;
+        const finish = () => {
+          if (finishTimer) clearTimeout(finishTimer);
+          unsubscribe();
+          this.pool.unsubscribe(subId);
+          resolve(result);
+        };
+        const unsubscribe = this.pool.onMessage((event) => {
+          if (event.kind === 30078 && event.pubkey === this.keyPair.publicKey) {
+            const hasDTag = event.tags?.some((t) => t[0] === "d" && t[1] === dTag);
+            if (hasDTag && event.created_at >= latestCreatedAt) {
+              try {
+                result = JSON.parse(event.content);
+                latestCreatedAt = event.created_at;
+              } catch {
+              }
+            }
+          }
+        });
+        this.pool.subscribe(
+          subId,
+          {
+            kinds: [30078],
+            authors: [this.keyPair.publicKey],
+            "#d": [dTag],
+            limit: 1
+          },
+          () => {
+            if (!finishTimer) {
+              finishTimer = setTimeout(finish, 350);
+            }
+          }
+        );
+        finishTimer = setTimeout(() => {
+          finish();
+        }, 2500);
+      });
+    }
   };
 
   // src/providers/mqtt/MqttProvider.ts
@@ -7631,6 +7757,28 @@ var nOmniPeer = (() => {
       });
       return session;
     }
+    async savePlayerData(key, data) {
+      const payload = {
+        ...typeof data === "object" && data !== null ? data : { value: data },
+        _updatedAt: Date.now()
+      };
+      if (typeof localStorage !== "undefined") {
+        try {
+          localStorage.setItem(`mpg_player_${key}`, JSON.stringify(payload));
+        } catch {
+        }
+      }
+    }
+    async loadPlayerData(key) {
+      if (typeof localStorage !== "undefined") {
+        try {
+          const raw = localStorage.getItem(`mpg_player_${key}`);
+          if (raw) return JSON.parse(raw);
+        } catch {
+        }
+      }
+      return null;
+    }
   };
 
   // src/providers/firebase/FirebaseProvider.ts
@@ -7905,6 +8053,35 @@ var nOmniPeer = (() => {
         nickname: nickname || "Gracz"
       });
       return session;
+    }
+    setUserId(userId) {
+      if (userId) this.myUserId = userId;
+    }
+    async savePlayerData(key, data) {
+      const url = `${this.cleanDbUrl()}/users/${encodeURIComponent(this.myUserId)}/${encodeURIComponent(key)}.json`;
+      const payload = {
+        ...typeof data === "object" && data !== null ? data : { value: data },
+        _updatedAt: Date.now()
+      };
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error(`Firebase savePlayerData failed: ${res.statusText}`);
+      }
+    }
+    async loadPlayerData(key) {
+      const url = `${this.cleanDbUrl()}/users/${encodeURIComponent(this.myUserId)}/${encodeURIComponent(key)}.json`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data;
+      } catch {
+        return null;
+      }
     }
   };
 
@@ -8234,6 +8411,51 @@ var nOmniPeer = (() => {
       this.leave();
       this.matrix.stopSync();
       this.removeAllListeners();
+    }
+    /**
+     * Save player data / stats / savegame in the cloud or local storage
+     * Supported across Firebase (RTDB), Matrix (Account Data), Nostr (NIP-78), and LocalStorage
+     */
+    async savePlayerData(key, data) {
+      if (this.lobbyProvider && typeof this.lobbyProvider.savePlayerData === "function") {
+        try {
+          await this.lobbyProvider.savePlayerData(key, data);
+          return;
+        } catch (err) {
+        }
+      }
+      if (typeof localStorage !== "undefined") {
+        const payload = {
+          ...typeof data === "object" && data !== null ? data : { value: data },
+          _updatedAt: Date.now()
+        };
+        try {
+          localStorage.setItem(`mpg_player_${this.gameId}_${key}`, JSON.stringify(payload));
+        } catch {
+        }
+      }
+    }
+    /**
+     * Load player data / stats / savegame from the cloud or local storage
+     */
+    async loadPlayerData(key) {
+      if (this.lobbyProvider && typeof this.lobbyProvider.loadPlayerData === "function") {
+        try {
+          const remoteData = await this.lobbyProvider.loadPlayerData(key);
+          if (remoteData !== null && remoteData !== void 0) {
+            return remoteData;
+          }
+        } catch {
+        }
+      }
+      if (typeof localStorage !== "undefined") {
+        try {
+          const raw = localStorage.getItem(`mpg_player_${this.gameId}_${key}`);
+          if (raw) return JSON.parse(raw);
+        } catch {
+        }
+      }
+      return null;
     }
   };
 

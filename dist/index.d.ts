@@ -93,6 +93,16 @@ interface ILobbyProvider extends TypedEventEmitter<LobbyProviderEvents> {
     listLobbies(gameId: string): Promise<LobbyInfo[]>;
     createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+    savePlayerData?(key: string, data: any): Promise<void>;
+    loadPlayerData?(key: string): Promise<any | null>;
+}
+interface PlayerData {
+    nickname?: string;
+    avatar?: string;
+    stats?: Record<string, number>;
+    saveState?: Record<string, any>;
+    updatedAt?: number;
+    [key: string]: any;
 }
 
 interface MatrixAuth {
@@ -264,6 +274,16 @@ declare class MatrixClient extends TypedEventEmitter<MatrixClientEvents> {
      * Internal processing of sync payloads to trigger fine-grained events
      */
     private processSyncResponse;
+    /**
+     * Set user account data (arbitrary JSON attached to the user's Matrix account)
+     * Matrix spec: PUT /_matrix/client/v3/user/{userId}/account_data/{type}
+     */
+    setAccountData(type: string, data: any): Promise<void>;
+    /**
+     * Get user account data
+     * Matrix spec: GET /_matrix/client/v3/user/{userId}/account_data/{type}
+     */
+    getAccountData<T = any>(type: string): Promise<T | null>;
 }
 
 type NetworkTopology = 'star' | 'mesh';
@@ -644,6 +664,9 @@ declare class FirebaseLobbyProvider extends TypedEventEmitter<LobbyProviderEvent
     listLobbies(gameId: string): Promise<LobbyInfo[]>;
     createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+    setUserId(userId: string): void;
+    savePlayerData(key: string, data: any): Promise<void>;
+    loadPlayerData(key: string): Promise<any | null>;
 }
 
 interface GameNetClientOptions {
@@ -777,6 +800,15 @@ declare class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
      * Disconnect completely
      */
     destroy(): void;
+    /**
+     * Save player data / stats / savegame in the cloud or local storage
+     * Supported across Firebase (RTDB), Matrix (Account Data), Nostr (NIP-78), and LocalStorage
+     */
+    savePlayerData(key: string, data: any): Promise<void>;
+    /**
+     * Load player data / stats / savegame from the cloud or local storage
+     */
+    loadPlayerData<T = any>(key: string): Promise<T | null>;
 }
 
 interface LobbyRoomEvents {
@@ -917,6 +949,8 @@ declare class MatrixLobbyProvider extends TypedEventEmitter<LobbyProviderEvents>
     listLobbies(gameId: string): Promise<LobbyInfo[]>;
     createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+    savePlayerData(key: string, data: any): Promise<void>;
+    loadPlayerData(key: string): Promise<any | null>;
 }
 
 declare const DEFAULT_NOSTR_RELAYS: string[];
@@ -934,6 +968,9 @@ declare class NostrLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> 
     listLobbies(gameId: string): Promise<LobbyInfo[]>;
     createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+    private createSignedEvent;
+    savePlayerData(key: string, data: any): Promise<void>;
+    loadPlayerData(key: string): Promise<any | null>;
 }
 
 declare const DEFAULT_MQTT_BROKER = "wss://broker.hivemq.com:8884/mqtt";
@@ -950,6 +987,8 @@ declare class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> i
     listLobbies(gameId: string): Promise<LobbyInfo[]>;
     createLobby(options: CreateLobbyOptions): Promise<ILobbySession>;
     joinLobby(roomId: string, nickname?: string): Promise<ILobbySession>;
+    savePlayerData(key: string, data: any): Promise<void>;
+    loadPlayerData(key: string): Promise<any | null>;
 }
 
 declare const nOmniPeer: {
@@ -989,4 +1028,4 @@ declare const MatrixPeerGame: {
     FirebaseLobbyProvider: typeof FirebaseLobbyProvider;
 };
 
-export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, DEFAULT_MQTT_BROKER, DEFAULT_NOSTR_RELAYS, type EntitySnapshot, type EventHandler, FirebaseLobbyProvider, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type ILobbyProvider, type ILobbySession, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, type LobbyProviderEvents, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbySessionEvents, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, MatrixLobbyProvider, MatrixPeerGame, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, MqttLobbyProvider, type NetworkPacket, type NetworkTopology, NostrLobbyProvider, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerStateEventContent, type ProviderType, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, nOmniPeer as default, nOmniPeer };
+export { type ChannelReliability, GameNetClient as Client, type CreateLobbyOptions, DEFAULT_MQTT_BROKER, DEFAULT_NOSTR_RELAYS, type EntitySnapshot, type EventHandler, FirebaseLobbyProvider, GameNetClient, type GameNetClientEvents, type GameNetClientOptions, type ILobbyProvider, type ILobbySession, type LobbyChatMessage, LobbyDiscovery, type LobbyInfo, type LobbyPlayer, type LobbyProviderEvents, LobbyRoom, type LobbyRoomEvents, type LobbySearchOptions, type LobbySessionEvents, type LobbyStateEventContent, type LockstepCommand, LockstepEngine, type LockstepEngineEvents, type LockstepEngineOptions, type MatrixAuth, MatrixClient, type MatrixClientEvents, type MatrixEvent, type MatrixJoinedRoomSync, MatrixLobbyProvider, MatrixPeerGame, type MatrixPublicRoom, type MatrixPublicRoomsResponse, type MatrixSyncResponse, type MatrixSyncRoomState, type MatrixSyncTimeline, MqttLobbyProvider, type NetworkPacket, type NetworkTopology, NostrLobbyProvider, PacketSerializer, PacketType, type PeerConnectionStats, PeerManager, type PeerManagerEvents, type PeerManagerOptions, type PlayerData, type PlayerStateEventContent, type ProviderType, RealtimeEngine, type RealtimeEngineEvents, type RealtimeEngineOptions, SharedStateEngine, type SharedStateEvents, type SharedStateOptions, type StateChangeOperation, type TurnAction, TurnBasedEngine, type TurnBasedEngineEvents, type TurnBasedEngineOptions, TypedEventEmitter, type Vector2State, type Vector3State, nOmniPeer as default, nOmniPeer };

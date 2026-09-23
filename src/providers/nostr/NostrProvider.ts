@@ -529,4 +529,87 @@ export class NostrLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> i
     });
     return session;
   }
+
+  private async createSignedEvent(kind: number, tags: string[][], contentObj: any): Promise<NostrEvent> {
+    const content = typeof contentObj === 'string' ? contentObj : JSON.stringify(contentObj);
+    const createdAt = Math.floor(Date.now() / 1000);
+    const serialized = JSON.stringify([0, this.keyPair.publicKey, createdAt, kind, tags, content]);
+    const id = await sha256Hex(serialized);
+    const sig = await schnorrSign(id, this.keyPair.secretKey);
+    return {
+      id,
+      pubkey: this.keyPair.publicKey,
+      created_at: createdAt,
+      kind,
+      tags,
+      content,
+      sig
+    };
+  }
+
+  async savePlayerData(key: string, data: any): Promise<void> {
+    const dTag = `nomnipeer:player:${key}`;
+    const payload = {
+      ...(typeof data === 'object' && data !== null ? data : { value: data }),
+      _updatedAt: Date.now()
+    };
+    const event = await this.createSignedEvent(
+      30078,
+      [
+        ['d', dTag],
+        ['t', 'nomnipeer-player-data']
+      ],
+      payload
+    );
+    this.pool.send(['EVENT', event]);
+  }
+
+  async loadPlayerData(key: string): Promise<any | null> {
+    const dTag = `nomnipeer:player:${key}`;
+    const subId = 'pdata_' + Math.random().toString(36).substring(2, 9);
+
+    return new Promise((resolve) => {
+      let result: any = null;
+      let latestCreatedAt = 0;
+      let finishTimer: any = null;
+
+      const finish = () => {
+        if (finishTimer) clearTimeout(finishTimer);
+        unsubscribe();
+        this.pool.unsubscribe(subId);
+        resolve(result);
+      };
+
+      const unsubscribe = this.pool.onMessage((event: NostrEvent) => {
+        if (event.kind === 30078 && event.pubkey === this.keyPair.publicKey) {
+          const hasDTag = event.tags?.some((t) => t[0] === 'd' && t[1] === dTag);
+          if (hasDTag && event.created_at >= latestCreatedAt) {
+            try {
+              result = JSON.parse(event.content);
+              latestCreatedAt = event.created_at;
+            } catch {}
+          }
+        }
+      });
+
+      this.pool.subscribe(
+        subId,
+        {
+          kinds: [30078],
+          authors: [this.keyPair.publicKey],
+          '#d': [dTag],
+          limit: 1
+        },
+        () => {
+          if (!finishTimer) {
+            finishTimer = setTimeout(finish, 350);
+          }
+        }
+      );
+
+      finishTimer = setTimeout(() => {
+        finish();
+      }, 2500);
+    });
+  }
 }

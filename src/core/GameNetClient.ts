@@ -415,4 +415,49 @@ export class GameNetClient extends TypedEventEmitter<GameNetClientEvents> {
     this.matrix.stopSync();
     this.removeAllListeners();
   }
+
+  /**
+   * Save player data / stats / savegame in the cloud or local storage
+   * Supported across Firebase (RTDB), Matrix (Account Data), Nostr (NIP-78), and LocalStorage
+   */
+  async savePlayerData(key: string, data: any): Promise<void> {
+    if (this.lobbyProvider && typeof this.lobbyProvider.savePlayerData === 'function') {
+      try {
+        await this.lobbyProvider.savePlayerData(key, data);
+        return;
+      } catch (err) {
+        // Fall through to localStorage fallback
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
+      const payload = {
+        ...(typeof data === 'object' && data !== null ? data : { value: data }),
+        _updatedAt: Date.now()
+      };
+      try {
+        localStorage.setItem(`mpg_player_${this.gameId}_${key}`, JSON.stringify(payload));
+      } catch {}
+    }
+  }
+
+  /**
+   * Load player data / stats / savegame from the cloud or local storage
+   */
+  async loadPlayerData<T = any>(key: string): Promise<T | null> {
+    if (this.lobbyProvider && typeof this.lobbyProvider.loadPlayerData === 'function') {
+      try {
+        const remoteData = await this.lobbyProvider.loadPlayerData(key);
+        if (remoteData !== null && remoteData !== undefined) {
+          return remoteData as T;
+        }
+      } catch {}
+    }
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(`mpg_player_${this.gameId}_${key}`);
+        if (raw) return JSON.parse(raw) as T;
+      } catch {}
+    }
+    return null;
+  }
 }

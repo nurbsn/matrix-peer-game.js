@@ -490,4 +490,26 @@ export class MqttLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> im
     });
     return session;
   }
+
+  async savePlayerData(key: string, data: any): Promise<void> {
+    const payload = {
+      ...(typeof data === 'object' && data !== null ? data : { value: data }),
+      _updatedAt: Date.now()
+    };
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(`mpg_player_${key}`, JSON.stringify(payload));
+      } catch {}
+    }
+  }
+
+  async loadPlayerData(key: string): Promise<any | null> {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(`mpg_player_${key}`);
+        if (raw) return JSON.parse(raw);
+      } catch {}
+    }
+    return null;
+  }
 }

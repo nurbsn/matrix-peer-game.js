@@ -88,4 +88,24 @@ export class MatrixLobbyProvider extends TypedEventEmitter<LobbyProviderEvents> 
 
     return lobby as unknown as ILobbySession;
   }
+
+  async savePlayerData(key: string, data: any): Promise<void> {
+    if (!this.matrix.isAuthenticated) {
+      throw new Error('Matrix client is not authenticated to save player data');
+    }
+    const type = `org.nomnipeer.player.${key}`;
+    const payload = {
+      ...(typeof data === 'object' && data !== null ? data : { value: data }),
+      _updatedAt: Date.now()
+    };
+    await this.matrix.setAccountData(type, payload);
+  }
+
+  async loadPlayerData(key: string): Promise<any | null> {
+    if (!this.matrix.isAuthenticated) {
+      return null;
+    }
+    const type = `org.nomnipeer.player.${key}`;
+    return await this.matrix.getAccountData(type);
+  }
 }

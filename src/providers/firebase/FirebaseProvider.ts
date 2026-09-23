@@ -317,4 +317,36 @@ export class FirebaseLobbyProvider extends TypedEventEmitter<LobbyProviderEvents
     });
     return session;
   }
+
+  setUserId(userId: string): void {
+    if (userId) this.myUserId = userId;
+  }
+
+  async savePlayerData(key: string, data: any): Promise<void> {
+    const url = `${this.cleanDbUrl()}/users/${encodeURIComponent(this.myUserId)}/${encodeURIComponent(key)}.json`;
+    const payload = {
+      ...(typeof data === 'object' && data !== null ? data : { value: data }),
+      _updatedAt: Date.now()
+    };
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      throw new Error(`Firebase savePlayerData failed: ${res.statusText}`);
+    }
+  }
+
+  async loadPlayerData(key: string): Promise<any | null> {
+    const url = `${this.cleanDbUrl()}/users/${encodeURIComponent(this.myUserId)}/${encodeURIComponent(key)}.json`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data;
+    } catch {
+      return null;
+    }
+  }
 }

@@ -241,13 +241,51 @@ Because public matrix servers like `matrix.org` have disabled open guest registr
 
 ---
 
+---
+
+## ☁️ Cloud Saves & Player Persistence
+
+`nOmniPeer.js` provides a unified API for persistent player data, campaign progress, stats (K/D, high scores), and unlocked achievements:
+
+```javascript
+// 1. Save player stats or game state
+await client.savePlayerData('stats', {
+  kills: 25,
+  deaths: 4,
+  highScore: 3500,
+  unlockedSkins: ['neon_blue', 'golden_bullet']
+});
+
+// 2. Load player data on startup
+const stats = await client.loadPlayerData('stats');
+if (stats) {
+  console.log(`Loaded player stats: ${stats.kills} frags, high score: ${stats.highScore} pts`);
+}
+```
+
+Works automatically across all supported providers:
+- **Firebase:** Persists to Realtime Database at `/users/{userId}/{key}.json`.
+- **Matrix:** Persists to official Matrix Account Data (`m.account_data`) linked to the user's account.
+- **NOSTR:** Persists as a NIP-78 parameterized replaceable event (`kind: 30078`) cryptographically signed with the player's private key.
+- **Direct P2P / MQTT:** Safe fallback to browser `localStorage`.
+
+---
+
+## 📚 Step-by-Step Setup Guides
+
+For developers setting up a production backend:
+- 📖 **[🔥 Firebase Setup Guide (Step-by-Step)](docs/setup-firebase.md)** – from creating a free Google Console project, to security rules, Google sign-in, and anonymous auth.
+- 📖 **[🪐 Self-Hosted Matrix Server Guide (Step-by-Step)](docs/setup-matrix.md)** – ultra-lightweight Conduit server in Docker (<30 MB RAM), free Let's Encrypt SSL, and zero-friction guest accounts.
+
+---
+
 ## 🛠️ Development & Building
 
 ```bash
 # Install dependencies
 npm install
 
-# Run Vitest unit tests (23/23 tests passing)
+# Run Vitest unit tests (30/30 tests passing)
 npm run test
 
 # Build standalone IIFE and ESM/CJS bundles
@@ -256,7 +294,8 @@ npm run build
 
 Generated files in `dist/`:
 - `dist/nomnipeer.js` – Standalone bundle (with embedded PeerJS for `<script>` tag, global `nOmniPeer`)
-- `dist/nomnipeer.min.js` – Minified standalone bundle (~143 KB)
+- `dist/nomnipeer.min.js` – Minified standalone bundle (~148 KB)
+- `dist/npeer.js` / `dist/npeer.min.js` – Clean adblock-safe standalone bundle (bypasses rules targeting `*omni*.js`)
 - `dist/matrix-peer-game.js` – Backward compatibility bundle (global `MatrixPeerGame`)
 - `dist/matrix-peer-game.min.js` – Backward compatibility minified bundle
 - `dist/index.mjs` – ES Module
